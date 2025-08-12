@@ -36,6 +36,10 @@ export default function ClientesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
+  const [committedSearch, setCommittedSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize] = useState(10)
+  const [total, setTotal] = useState(0)
   const [showForm, setShowForm] = useState(false)
   const [editingCliente, setEditingCliente] = useState<Cliente | null>(null)
   const [formData, setFormData] = useState<ClienteForm>({
@@ -56,17 +60,28 @@ export default function ClientesPage() {
 
   useEffect(() => {
     fetchClientes()
-  }, [])
+  }, [page, committedSearch])
 
   async function fetchClientes() {
     try {
       setLoading(true)
       setError('')
       
-      const { data, error: err } = await supabase
+      const from = (page - 1) * pageSize
+      const to = from + pageSize - 1
+      
+      let query = supabase
         .from('partners')
-        .select('id, name, type, contact')
+        .select('id, name, type, contact', { count: 'exact' })
         .order('name', { ascending: true })
+        .range(from, to)
+
+      const term = committedSearch.trim()
+      if (term) {
+        query = query.or(`name.ilike.%${term}%,type.ilike.%${term}%,contact.ilike.%${term}%`)
+      }
+
+      const { data, error: err, count } = await query
 
       if (err) {
         console.error('Error fetching clientes:', err)
@@ -76,8 +91,10 @@ export default function ClientesPage() {
 
       if (data) {
         setClientes(data)
+        setTotal(count || 0)
       } else {
         setClientes([])
+        setTotal(0)
       }
     } catch (error) {
       console.error('Unexpected error:', error)
@@ -87,11 +104,18 @@ export default function ClientesPage() {
     }
   }
 
-  const filteredClientes = clientes.filter(cliente =>
-    cliente.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    cliente.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    cliente.contact.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  // Resetear a página 1 cuando cambie la búsqueda
+  useEffect(() => {
+    setPage(1)
+  }, [committedSearch])
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault()
+    setCommittedSearch(searchTerm)
+  }
+
+  // Ya no necesitamos filtrado local porque se hace en la base de datos
+  const filteredClientes = clientes
 
   const resetForm = () => {
     setFormData({
@@ -139,12 +163,11 @@ export default function ClientesPage() {
           return
         }
 
-        // Actualizar lista local
-        setClientes(clientes.map(c => 
-          c.id === editingCliente.id 
-            ? { ...c, ...formData }
-            : c
-        ))
+        // Refrescar la lista y resetear a página 1 si es necesario
+        await fetchClientes()
+        if (page > 1 && total <= (page - 1) * pageSize) {
+          setPage(page - 1)
+        }
         showNotification('success', 'Cliente actualizado exitosamente')
       } else {
         // Crear nuevo cliente
@@ -163,7 +186,12 @@ export default function ClientesPage() {
         }
 
         showNotification('success', 'Cliente creado exitosamente')
-        fetchClientes() // Recargar la lista
+        // Refrescar la lista y ir a la última página
+        await fetchClientes()
+        const lastPage = Math.ceil((total + 1) / pageSize)
+        if (lastPage > page) {
+          setPage(lastPage)
+        }
       }
 
       resetForm()
@@ -207,7 +235,11 @@ export default function ClientesPage() {
         return
       }
 
-      setClientes(clientes.filter(c => c.id !== clienteToDelete.id))
+      // Refrescar la lista y ajustar página si es necesario
+      await fetchClientes()
+      if (page > 1 && total <= (page - 1) * pageSize) {
+        setPage(page - 1)
+      }
       showNotification('success', 'Cliente eliminado exitosamente')
       setShowDeleteModal(false)
       setClienteToDelete(null)
@@ -256,7 +288,7 @@ export default function ClientesPage() {
               Gestión de Clientes
             </h1>
             <p className="text-slate-600 text-lg">
-              Administra tu base de clientes y proveedores • {clientes.length} registros disponibles
+              Administra tu base de clientes y proveedores • {total} registros disponibles
             </p>
           </div>
           <button 
@@ -271,16 +303,36 @@ export default function ClientesPage() {
 
       {/* Barra de búsqueda moderna y elegante */}
       <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6">
-        <div className="relative w-full md:w-96">
-          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-          <input
-            type="text"
-            placeholder="Buscar clientes por nombre, tipo o contacto..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-all duration-300 text-slate-700 text-base placeholder-slate-400"
-          />
-        </div>
+        <form onSubmit={handleSearch} className="flex gap-3 w-full md:w-auto">
+          <div className="relative flex-1 md:w-96">
+            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              type="text"
+              placeholder="Buscar clientes por nombre, tipo o contacto..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-all duration-300 text-slate-700 text-base placeholder-slate-400"
+            />
+          </div>
+          <button
+            type="submit"
+            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 font-semibold shadow-md hover:shadow-lg"
+          >
+            Buscar
+          </button>
+          {committedSearch && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchTerm('')
+                setCommittedSearch('')
+              }}
+              className="px-6 py-3 bg-slate-200 text-slate-700 rounded-xl hover:bg-slate-300 transition-all duration-200 font-semibold"
+            >
+              Limpiar
+            </button>
+          )}
+        </form>
       </div>
 
       {/* Formulario moderno */}
@@ -431,10 +483,10 @@ export default function ClientesPage() {
                         <Users size={32} className="text-blue-600" />
                       </div>
                       <h3 className="text-xl font-semibold text-slate-800 mb-2">
-                        {searchTerm ? 'No se encontraron clientes' : 'No hay clientes registrados'}
+                        {committedSearch ? 'No se encontraron clientes' : 'No hay clientes registrados'}
                       </h3>
                       <p className="text-slate-600 text-lg">
-                        {searchTerm ? 'Intenta ajustar los términos de búsqueda' : 'Comienza creando tu primer cliente'}
+                        {committedSearch ? 'Intenta ajustar los términos de búsqueda' : 'Comienza creando tu primer cliente'}
                       </p>
                     </div>
                   </td>
@@ -459,24 +511,24 @@ export default function ClientesPage() {
                         <span className="text-slate-700">{cliente.contact || '-'}</span>
                       </div>
                     </td>
-                    <td className="p-6 text-center">
-                      <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                        <button 
-                          className="p-3 text-blue-600 hover:bg-blue-50 rounded-xl transition-all duration-200 hover:scale-110 border border-blue-200"
-                          onClick={() => handleEdit(cliente)}
-                          title="Editar"
-                        >
-                          <Edit size={18} />
-                        </button>
-                        <button 
-                          className="p-3 text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200 hover:scale-110 border border-red-200"
-                          onClick={() => handleDelete(cliente)}
-                          title="Eliminar"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </td>
+                                         <td className="p-6 text-center">
+                       <div className="flex justify-center gap-2">
+                         <button 
+                           className="p-3 text-blue-600 hover:bg-blue-50 rounded-xl transition-all duration-200 hover:scale-110 border border-blue-200"
+                           onClick={() => handleEdit(cliente)}
+                           title="Editar"
+                         >
+                           <Edit size={18} />
+                         </button>
+                         <button 
+                           className="p-3 text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200 hover:scale-110 border border-red-200"
+                           onClick={() => handleDelete(cliente)}
+                           title="Eliminar"
+                         >
+                           <Trash2 size={18} />
+                         </button>
+                       </div>
+                     </td>
                   </tr>
                 ))
               )}
@@ -485,15 +537,35 @@ export default function ClientesPage() {
         </div>
       </div>
 
-      {/* Información adicional moderna */}
+      {/* Paginación moderna */}
       <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6">
-        <div className="flex items-center justify-center gap-3">
-          <div className="w-12 h-12 bg-gradient-to-br from-blue-100 to-blue-200 rounded-xl flex items-center justify-center">
-            <Users size={20} className="text-blue-600" />
+        <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
+          <div className="text-sm text-slate-600 bg-slate-100 px-4 py-2 rounded-xl border border-slate-200">
+            {total > 0 ? (
+              <>Mostrando {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, total)} de {total} clientes</>
+            ) : (
+              <>Sin resultados</>
+            )}
           </div>
-          <span className="text-slate-600 font-medium text-sm">
-            Mostrando {filteredClientes.length} de {clientes.length} clientes
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-200 transition-all duration-200 font-medium border border-slate-200"
+            >
+              ← Anterior
+            </button>
+            <span className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium shadow-md">
+              {page} / {Math.max(1, Math.ceil(total / pageSize))}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(Math.ceil(total / pageSize) || 1, p + 1))}
+              disabled={page >= Math.ceil(total / pageSize)}
+              className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-200 transition-all duration-200 font-medium border border-slate-200"
+            >
+              Siguiente →
+            </button>
+          </div>
         </div>
       </div>
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../supabase'
-import { Loader2, Plus, Save, Search, Shield, UserPlus, Eye, EyeOff, Trash2 } from 'lucide-react'
+import { Loader2, Plus, Save, Search, Shield, UserPlus, Eye, EyeOff, Trash2, AlertTriangle, CheckCircle, Users } from 'lucide-react'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 type AppUser = {
   id: string
@@ -18,6 +19,8 @@ export default function UsuariosPage() {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [userToDelete, setUserToDelete] = useState<AppUser | null>(null)
 
   const [showForm, setShowForm] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -30,9 +33,33 @@ export default function UsuariosPage() {
     role: 'vendedor' as 'admin' | 'vendedor'
   })
 
+  const [notification, setNotification] = useState<{
+    type: 'success' | 'error' | 'info'
+    message: string
+    show: boolean
+  }>({ type: 'info', message: '', show: false })
+
   useEffect(() => {
     fetchUsers()
   }, [])
+
+  const showNotification = (type: 'success' | 'error' | 'info', message: string) => {
+    setNotification({ type, message, show: true })
+    setTimeout(() => {
+      setNotification(prev => ({ ...prev, show: false }))
+    }, 4000)
+  }
+
+  const closeForm = () => {
+    setShowForm(false)
+    setForm({ email: '', name: '', username: '', password: '', role: 'vendedor' })
+    showNotification('info', 'Formulario cerrado')
+  }
+
+  const clearSearch = () => {
+    setSearch('')
+    showNotification('info', 'Búsqueda limpiada')
+  }
 
   async function fetchUsers() {
     try {
@@ -57,26 +84,12 @@ export default function UsuariosPage() {
     // evitar eliminarse a sí mismo
     const { data: auth } = await supabase.auth.getUser()
     if (auth.user?.id === user.id) {
-      alert('No puedes eliminar tu propia cuenta desde aquí.')
+      showNotification('error', 'No puedes eliminar tu propia cuenta desde aquí.')
       return
     }
 
-    if (!confirm(`¿Eliminar al usuario "${user.username}"?`)) return
-    try {
-      setDeletingId(user.id)
-      const { error } = await supabase
-        .from('users')
-        .delete()
-        .eq('id', user.id)
-
-      if (error) throw error
-      setUsers(prev => prev.filter(u => u.id !== user.id))
-    } catch (err: any) {
-      console.error(err)
-      setError(err.message || 'No se pudo eliminar el usuario')
-    } finally {
-      setDeletingId(null)
-    }
+    setUserToDelete(user)
+    setShowDeleteModal(true)
   }
 
   function generatePassword(length = 12) {
@@ -86,12 +99,13 @@ export default function UsuariosPage() {
       pwd += chars[Math.floor(Math.random() * chars.length)]
     }
     setForm({ ...form, password: pwd })
+    showNotification('info', 'Contraseña generada automáticamente')
   }
 
   async function handleCreateUser(e: React.FormEvent) {
     e.preventDefault()
     if (!form.email.trim() || !form.username.trim() || !form.password || !form.name.trim()) {
-      alert('Completa nombre, email, usuario y contraseña')
+      showNotification('error', 'Completa nombre, email, usuario y contraseña')
       return
     }
 
@@ -127,7 +141,7 @@ export default function UsuariosPage() {
       setShowForm(false)
       setForm({ email: '', name: '', username: '', password: '', role: 'vendedor' })
       await fetchUsers()
-      alert('Usuario creado correctamente.')
+      showNotification('success', 'Usuario creado correctamente.')
 
       // Restaurar sesión del admin si la perdimos por el signUp
       if (adminAccessToken && adminRefreshToken) {
@@ -135,7 +149,7 @@ export default function UsuariosPage() {
       }
     } catch (err: any) {
       console.error(err)
-      setError(err.message || 'Error al crear usuario')
+      showNotification('error', err.message || 'Error al crear usuario')
     } finally {
       setSubmitting(false)
     }
@@ -196,7 +210,7 @@ export default function UsuariosPage() {
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-bold text-gray-800">Registrar nuevo usuario</h2>
             <button 
-              onClick={() => setShowForm(false)} 
+              onClick={closeForm} 
               className="p-3 hover:bg-gray-100 rounded-xl transition-colors duration-200 text-gray-600"
             >
               ✕
@@ -294,7 +308,7 @@ export default function UsuariosPage() {
               </button>
               <button 
                 type="button" 
-                onClick={() => setShowForm(false)} 
+                onClick={closeForm} 
                 className="px-6 py-3 bg-gray-500 text-white rounded-xl hover:bg-gray-600 transition-all duration-200 font-semibold"
               >
                 Cancelar
@@ -317,6 +331,15 @@ export default function UsuariosPage() {
               placeholder="Buscar por email, usuario o rol"
             />
           </div>
+          {search && (
+            <button 
+              onClick={clearSearch} 
+              className="px-4 py-3 bg-gray-200 hover:bg-gray-300 rounded-xl transition-colors duration-200 font-medium"
+              title="Limpiar búsqueda"
+            >
+              Limpiar
+            </button>
+          )}
           <button 
             onClick={fetchUsers} 
             className="px-6 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors duration-200 font-medium flex items-center gap-2"
@@ -386,7 +409,7 @@ export default function UsuariosPage() {
                       </div>
                     </td>
                     <td className="p-6 text-center">
-                      <div className="flex justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                      <div className="flex justify-center">
                         <button
                           onClick={() => handleDeleteUser(u)}
                           disabled={deletingId === u.id}
@@ -414,6 +437,63 @@ export default function UsuariosPage() {
           </span>
         </div>
       </div>
+
+             {/* Confirmación de eliminación */}
+       <ConfirmDialog
+         open={showDeleteModal}
+         onConfirm={async () => {
+           if (!userToDelete) return
+           try {
+             setDeletingId(userToDelete.id)
+             const { error } = await supabase
+               .from('users')
+               .delete()
+               .eq('id', userToDelete.id)
+
+             if (error) throw error
+             setUsers(prev => prev.filter(u => u.id !== userToDelete.id))
+             showNotification('success', `Usuario "${userToDelete.username}" eliminado correctamente.`)
+           } catch (err: any) {
+             console.error(err)
+             showNotification('error', err.message || 'No se pudo eliminar el usuario')
+           } finally {
+             setDeletingId(null)
+             setShowDeleteModal(false)
+             setUserToDelete(null)
+           }
+         }}
+         onCancel={() => {
+           setShowDeleteModal(false)
+           setUserToDelete(null)
+         }}
+         title="Confirmar eliminación"
+         description={`¿Estás seguro de que quieres eliminar al usuario "${userToDelete?.username}"? Esta acción no se puede deshacer.`}
+         confirmText="Eliminar"
+         cancelText="Cancelar"
+         variant="danger"
+       />
+
+             {/* Notificaciones Toast modernas */}
+       {notification.show && (
+         <div className={`fixed top-4 right-4 z-50 max-w-sm w-full ${
+           notification.type === 'success' 
+             ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white' 
+             : notification.type === 'error'
+             ? 'bg-gradient-to-r from-red-500 to-pink-500 text-white'
+             : 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white'
+         } rounded-2xl shadow-2xl p-4 transform transition-all duration-300 ease-in-out`}>
+           <div className="flex items-center gap-3">
+             {notification.type === 'success' ? (
+               <CheckCircle size={20} />
+             ) : notification.type === 'error' ? (
+               <AlertTriangle size={20} />
+             ) : (
+               <Users size={20} />
+             )}
+             <p className="text-sm font-medium">{notification.message}</p>
+           </div>
+         </div>
+       )}
     </div>
   )
 }

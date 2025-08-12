@@ -125,13 +125,13 @@ export default function InventarioPage() {
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-green-600">
-                {productos.filter(p => p.stock > 10).length}
+                {productos.filter(p => p.stock > 2).length}
               </div>
               <div className="text-sm text-slate-600">Stock Alto</div>
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-yellow-600">
-                {productos.filter(p => p.stock > 0 && p.stock <= 10).length}
+                {productos.filter(p => p.stock > 0 && p.stock <= 2).length}
               </div>
               <div className="text-sm text-slate-600">Stock Bajo</div>
             </div>
@@ -215,7 +215,7 @@ export default function InventarioPage() {
                     </td>
                     <td className="p-6 text-right">
                       <span className={`inline-flex items-center justify-center px-4 py-2 rounded-xl text-lg font-bold ${
-                        prod.stock > 10 ? 'bg-green-100 text-green-700 border border-green-200' :
+                        prod.stock > 2 ? 'bg-green-100 text-green-700 border border-green-200' :
                         prod.stock > 0 ? 'bg-yellow-100 text-yellow-700 border border-yellow-200' :
                         'bg-red-100 text-red-700 border border-red-200'
                       }`}>

@@ -19,7 +19,7 @@ export function useToast() {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
 
-  const show = (message: string, kind: ToastKind = 'info', title?: string, durationMs = 3500) => {
+  const show = (message: string, kind: ToastKind = 'info', title?: string, durationMs = 4000) => {
     const id = Date.now()
     setToasts(prev => [...prev, { id, message, kind, title, duration: durationMs }])
     setTimeout(() => dismiss(id), durationMs)
@@ -36,19 +36,34 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {toasts.map(t => (
           <div
             key={t.id}
-            className={`relative flex items-start gap-3 rounded-xl shadow-lg border p-4 w-[320px] backdrop-blur bg-white/95
-              ${t.kind === 'success' ? 'border-green-200' : t.kind === 'error' ? 'border-red-200' : 'border-blue-200'}`}
+            className={`max-w-sm w-full transform transition-all duration-300 ease-in-out ${
+              t.kind === 'success' 
+                ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white' 
+                : t.kind === 'error'
+                ? 'bg-gradient-to-r from-red-500 to-pink-500 text-white'
+                : 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white'
+            } rounded-2xl shadow-2xl p-4`}
           >
-            <div className={`mt-0.5 ${t.kind === 'success' ? 'text-green-600' : t.kind === 'error' ? 'text-red-600' : 'text-blue-600'}`}>
-              {t.kind === 'success' ? <CheckCircle2 size={20} /> : t.kind === 'error' ? <TriangleAlert size={20} /> : <Info size={20} />}
+            <div className="flex items-center gap-3">
+              {t.kind === 'success' ? (
+                <CheckCircle2 size={20} />
+              ) : t.kind === 'error' ? (
+                <TriangleAlert size={20} />
+              ) : (
+                <Info size={20} />
+              )}
+              <div className="flex-1">
+                {t.title && <div className="text-sm font-semibold">{t.title}</div>}
+                <div className="text-sm font-medium">{t.message}</div>
+              </div>
+              <button 
+                className="text-white/80 hover:text-white transition-colors duration-200" 
+                onClick={() => dismiss(t.id)} 
+                aria-label="Cerrar"
+              >
+                <X size={16} />
+              </button>
             </div>
-            <div className="flex-1">
-              {t.title && <div className="text-sm font-semibold text-gray-800">{t.title}</div>}
-              <div className="text-sm text-gray-700">{t.message}</div>
-            </div>
-            <button className="text-gray-400 hover:text-gray-600" onClick={() => dismiss(t.id)} aria-label="Cerrar">
-              <X size={16} />
-            </button>
           </div>
         ))}
       </div>

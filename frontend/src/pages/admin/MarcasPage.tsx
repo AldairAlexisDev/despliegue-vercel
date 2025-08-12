@@ -1,7 +1,7 @@
 // src/pages/admin/MarcasPage.tsx
 import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../../supabase'
-import { Loader2, Plus, Search, Edit, Trash2, X, Save, Tag } from 'lucide-react'
+import { Loader2, Plus, Search, Edit, Trash2, X, Save, Tag, AlertTriangle, CheckCircle } from 'lucide-react'
 import ConfirmDialog from '../../components/ConfirmDialog'
 
 type Marca = {
@@ -19,6 +19,10 @@ export default function MarcasPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
+  const [committedSearch, setCommittedSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize] = useState(12)
+  const [total, setTotal] = useState(0)
   const [showForm, setShowForm] = useState(false)
   const [editingMarca, setEditingMarca] = useState<Marca | null>(null)
   const [formData, setFormData] = useState<MarcaForm>({
@@ -27,20 +31,36 @@ export default function MarcasPage() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [brandToDelete, setBrandToDelete] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [notification, setNotification] = useState<{
+    type: 'success' | 'error' | 'info'
+    message: string
+    show: boolean
+  }>({ type: 'info', message: '', show: false })
 
   useEffect(() => {
     fetchMarcas()
-  }, [])
+  }, [page, committedSearch])
 
   async function fetchMarcas() {
     try {
       setLoading(true)
       setError('')
       
-      const { data, error: err } = await supabase
+      const from = (page - 1) * pageSize
+      const to = from + pageSize - 1
+      
+      let query = supabase
         .from('brands')
-        .select('id, name, created_at')
+        .select('id, name, created_at', { count: 'exact' })
         .order('name', { ascending: true })
+        .range(from, to)
+
+      const term = committedSearch.trim()
+      if (term) {
+        query = query.ilike('name', `%${term}%`)
+      }
+
+      const { data, error: err, count } = await query
 
       if (err) {
         console.error('Error fetching marcas:', err)
@@ -50,8 +70,10 @@ export default function MarcasPage() {
 
       if (data) {
         setMarcas(data)
+        setTotal(count || 0)
       } else {
         setMarcas([])
+        setTotal(0)
       }
     } catch (error) {
       console.error('Unexpected error:', error)
@@ -61,11 +83,18 @@ export default function MarcasPage() {
     }
   }
 
-  const filteredMarcas = marcas.filter(marca =>
-    marca.name.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  // Resetear a página 1 cuando cambie la búsqueda
+  useEffect(() => {
+    setPage(1)
+  }, [committedSearch])
 
-  const ordered = useMemo(() => filteredMarcas, [filteredMarcas])
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault()
+    setCommittedSearch(searchTerm)
+  }
+
+  // Ya no necesitamos filtrado local porque se hace en la base de datos
+  const ordered = useMemo(() => marcas, [marcas])
 
   const resetForm = () => {
     setFormData({
@@ -75,11 +104,18 @@ export default function MarcasPage() {
     setShowForm(false)
   }
 
+  const showNotification = (type: 'success' | 'error' | 'info', message: string) => {
+    setNotification({ type, message, show: true })
+    setTimeout(() => {
+      setNotification(prev => ({ ...prev, show: false }))
+    }, 4000)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
     if (!formData.name.trim()) {
-      alert('Por favor ingresa el nombre de la marca')
+      showNotification('error', 'Por favor ingresa el nombre de la marca')
       return
     }
 
@@ -95,16 +131,16 @@ export default function MarcasPage() {
 
         if (error) {
           console.error('Error updating marca:', error)
-          alert(`Error al actualizar: ${error.message}`)
+          showNotification('error', `Error al actualizar: ${error.message}`)
           return
         }
 
-        // Actualizar lista local
-        setMarcas(marcas.map(m => 
-          m.id === editingMarca.id 
-            ? { ...m, name: formData.name.trim() }
-            : m
-        ))
+        // Refrescar la lista y resetear a página 1 si es necesario
+        await fetchMarcas()
+        if (page > 1 && total <= (page - 1) * pageSize) {
+          setPage(page - 1)
+        }
+        showNotification('success', 'Marca actualizada exitosamente')
       } else {
         // Crear nueva marca
         const { data, error } = await supabase
@@ -116,19 +152,25 @@ export default function MarcasPage() {
 
         if (error) {
           console.error('Error creating marca:', error)
-          alert(`Error al crear: ${error.message}`)
+          showNotification('error', `Error al crear: ${error.message}`)
           return
         }
 
         if (data) {
-          setMarcas([...marcas, data[0]])
+          // Refrescar la lista y ir a la última página
+          await fetchMarcas()
+          const lastPage = Math.ceil((total + 1) / pageSize)
+          if (lastPage > page) {
+            setPage(lastPage)
+          }
+          showNotification('success', 'Marca creada exitosamente')
         }
       }
 
       resetForm()
     } catch (error) {
       console.error('Unexpected error:', error)
-      alert('Error inesperado al guardar la marca')
+      showNotification('error', 'Error inesperado al guardar la marca')
     }
   }
 
@@ -147,10 +189,15 @@ export default function MarcasPage() {
       setDeleting(true)
       const { error } = await supabase.from('brands').delete().eq('id', brandToDelete)
       if (error) throw error
-      setMarcas(prev => prev.filter(m => m.id !== brandToDelete))
+      // Refrescar la lista y ajustar página si es necesario
+      await fetchMarcas()
+      if (page > 1 && total <= (page - 1) * pageSize) {
+        setPage(page - 1)
+      }
+      showNotification('success', 'Marca eliminada exitosamente')
     } catch (error) {
       console.error('Unexpected error:', error)
-      alert('Error inesperado al eliminar la marca')
+      showNotification('error', 'Error inesperado al eliminar la marca')
     } finally {
       setDeleting(false)
       setConfirmOpen(false)
@@ -195,7 +242,7 @@ export default function MarcasPage() {
               Gestión de Marcas
             </h1>
             <p className="text-slate-600 text-lg">
-              Administra las marcas de tus productos • {marcas.length} marcas disponibles
+              Administra las marcas de tus productos • {total} marcas disponibles
             </p>
           </div>
           <button 
@@ -208,22 +255,49 @@ export default function MarcasPage() {
         </div>
       </div>
 
-      {/* Barra de búsqueda moderna y elegante */}
-      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6">
-        <div className="relative w-full md:w-96">
-          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-          <input
-            type="text"
-            placeholder="Buscar marcas por nombre..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-all duration-300 text-slate-700 text-base placeholder-slate-400"
-          />
+              {/* Barra de búsqueda moderna y elegante */}
+        <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6">
+          <form onSubmit={handleSearch} className="flex gap-3 w-full md:w-auto">
+            <div className="relative flex-1 md:w-96">
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                type="text"
+                placeholder="Buscar marcas por nombre..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-all duration-300 text-slate-700 text-base placeholder-slate-400"
+              />
+            </div>
+            <button
+              type="submit"
+              className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 font-semibold shadow-md hover:shadow-lg"
+            >
+              Buscar
+            </button>
+            {committedSearch && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('')
+                  setCommittedSearch('')
+                }}
+                className="px-6 py-3 bg-slate-200 text-slate-700 rounded-xl hover:bg-slate-300 transition-all duration-200 font-semibold"
+              >
+                Limpiar
+              </button>
+            )}
+          </form>
         </div>
-      </div>
 
       {/* Grid de cards de marcas mejorado */}
-      {ordered.length === 0 ? (
+      {loading ? (
+        <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-12 text-center">
+          <div className="flex flex-col items-center">
+            <Loader2 className="animate-spin text-blue-600 mb-4" size={32} />
+            <p className="text-slate-600 text-lg">Cargando marcas...</p>
+          </div>
+        </div>
+      ) : ordered.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-12 text-center">
           <div className="flex flex-col items-center">
             <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-blue-200 rounded-2xl flex items-center justify-center mb-6">
@@ -280,15 +354,35 @@ export default function MarcasPage() {
         </div>
       )}
 
-      {/* Información adicional moderna */}
+      {/* Paginación moderna */}
       <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6">
-        <div className="flex items-center justify-center gap-3">
-          <div className="w-12 h-12 bg-gradient-to-br from-blue-100 to-blue-200 rounded-xl flex items-center justify-center">
-            <Tag size={20} className="text-blue-600" />
+        <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
+          <div className="text-sm text-slate-600 bg-slate-100 px-4 py-2 rounded-xl border border-slate-200">
+            {total > 0 ? (
+              <>Mostrando {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, total)} de {total} marcas</>
+            ) : (
+              <>Sin resultados</>
+            )}
           </div>
-          <span className="text-slate-600 font-medium text-sm">
-            Mostrando {ordered.length} de {marcas.length} marcas
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-200 transition-all duration-200 font-medium border border-slate-200"
+            >
+              ← Anterior
+            </button>
+            <span className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium shadow-md">
+              {page} / {Math.max(1, Math.ceil(total / pageSize))}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(Math.ceil(total / pageSize) || 1, p + 1))}
+              disabled={page >= Math.ceil(total / pageSize)}
+              className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-200 transition-all duration-200 font-medium border border-slate-200"
+            >
+              Siguiente →
+            </button>
+          </div>
         </div>
       </div>
 
@@ -352,6 +446,28 @@ export default function MarcasPage() {
         onConfirm={confirmDelete}
         onCancel={() => { if (!deleting) { setConfirmOpen(false); setBrandToDelete(null) } }}
       />
+
+      {/* Notificaciones Toast modernas */}
+      {notification.show && (
+        <div className={`fixed top-4 right-4 z-50 max-w-sm w-full ${
+          notification.type === 'success' 
+            ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white' 
+            : notification.type === 'error'
+            ? 'bg-gradient-to-r from-red-500 to-pink-500 text-white'
+            : 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white'
+        } rounded-2xl shadow-2xl p-4 transform transition-all duration-300 ease-in-out`}>
+          <div className="flex items-center gap-3">
+            {notification.type === 'success' ? (
+              <CheckCircle size={20} />
+            ) : notification.type === 'error' ? (
+              <AlertTriangle size={20} />
+            ) : (
+              <Tag size={20} />
+            )}
+            <p className="text-sm font-medium">{notification.message}</p>
+          </div>
+        </div>
+      )}
     </div>
   )
 } 

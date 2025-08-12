@@ -1370,7 +1370,7 @@ export default function NotasPedidoPage() {
               <tr>
                 <th className="text-center p-6 font-semibold text-gray-700 text-sm uppercase tracking-wider">N° Pedido</th>
                 <th className="text-center p-6 font-semibold text-gray-700 text-sm uppercase tracking-wider">Tipo</th>
-                <th className="text-left p-6 font-semibold text-gray-700 text-sm uppercase tracking-wider">Partner</th>
+                <th className="text-left p-6 font-semibold text-gray-700 text-sm uppercase tracking-wider">Cliente/Proveedor</th>
                 <th className="text-left p-6 font-semibold text-gray-700 text-sm uppercase tracking-wider">Productos</th>
                 <th className="text-right p-6 font-semibold text-gray-700 text-sm uppercase tracking-wider">Total</th>
                 <th className="text-center p-6 font-semibold text-gray-700 text-sm uppercase tracking-wider">Fecha</th>
@@ -1462,7 +1462,7 @@ export default function NotasPedidoPage() {
                       </div>
                     </td>
                     <td className="p-6 text-center">
-                      <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                      <div className="flex justify-center gap-2">
                         <button 
                           className="p-3 text-blue-600 hover:bg-blue-50 rounded-xl transition-all duration-200 hover:scale-110"
                           onClick={() => handleEdit(nota)}
