@@ -7,16 +7,16 @@ interface AuthLayoutProps {
 
 export default function AuthLayout({ children }: AuthLayoutProps) {
   return (
-    <div className="min-h-screen grid grid-cols-1 md:grid-cols-2">
+    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2">
       {/* Sección izquierda: formulario centrado */}
-      <div className="flex items-center justify-center bg-white px-6 py-12">
+      <div className="flex items-center justify-center bg-white px-4 sm:px-6 py-8 sm:py-12">
         <div className="w-full max-w-md">
           {children}
         </div>
       </div>
 
-      {/* Sección derecha: imagen o info */}
-      <div className="hidden md:flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 p-6">
+      {/* Sección derecha: imagen o info - oculta en móviles */}
+      <div className="hidden lg:flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 p-6">
         <div className="text-center max-w-sm">
           <div className="w-32 h-32 mx-auto mb-6 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
             <svg className="w-16 h-16 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -40,11 +40,13 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
     }, [location.pathname, navigate])
 
     return (
-      <div className="flex h-screen">
+      <div className="flex h-screen bg-gray-50">
         <Sidebar />
 
-        <main className="flex-1 bg-gray-50 p-6 overflow-auto">
-          {children ?? <Outlet />}
+        <main className="flex-1 overflow-auto transition-smooth lg:ml-0">
+          <div className="min-h-full p-4 sm:p-6 lg:p-8">
+            {children ?? <Outlet />}
+          </div>
         </main>
       </div>
     )

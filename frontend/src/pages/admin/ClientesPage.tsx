@@ -57,6 +57,9 @@ export default function ClientesPage() {
     message: string
     show: boolean
   }>({ type: 'info', message: '', show: false })
+  
+  // Estado para destacar el cliente recién creado
+  const [highlightedClienteId, setHighlightedClienteId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchClientes()
@@ -126,6 +129,7 @@ export default function ClientesPage() {
     setEditingCliente(null)
     setShowForm(false)
     setError('')
+    setHighlightedClienteId(null)
   }
 
   const showNotification = (type: 'success' | 'error' | 'info', message: string) => {
@@ -169,15 +173,26 @@ export default function ClientesPage() {
           setPage(page - 1)
         }
         showNotification('success', 'Cliente actualizado exitosamente')
+        
+        // Solo resetear el formulario, no el destacado
+        setFormData({
+          name: '',
+          type: '',
+          contact: ''
+        })
+        setEditingCliente(null)
+        setShowForm(false)
+        setError('')
       } else {
         // Crear nuevo cliente
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('partners')
           .insert([{
             name: formData.name.trim(),
             type: formData.type.trim(),
             contact: formData.contact.trim()
           }])
+          .select('id')
 
         if (error) {
           console.error('Error creating cliente:', error)
@@ -186,15 +201,35 @@ export default function ClientesPage() {
         }
 
         showNotification('success', 'Cliente creado exitosamente')
-        // Refrescar la lista y ir a la última página
+        
+        // Ir a la primera página para mostrar el nuevo cliente
+        setPage(1)
+        
+        // Refrescar la lista
         await fetchClientes()
-        const lastPage = Math.ceil((total + 1) / pageSize)
-        if (lastPage > page) {
-          setPage(lastPage)
+        
+        // Después de refrescar, destacar el nuevo cliente
+        if (data && data[0]) {
+          console.log('Cliente creado con ID:', data[0].id)
+          setHighlightedClienteId(data[0].id)
+          console.log('HighlightedClienteId establecido:', data[0].id)
+          // Remover el destacado después de 5 segundos
+          setTimeout(() => {
+            console.log('Removiendo destacado del cliente:', data[0].id)
+            setHighlightedClienteId(null)
+          }, 5000)
         }
+        
+        // Solo resetear el formulario, no el destacado
+        setFormData({
+          name: '',
+          type: '',
+          contact: ''
+        })
+        setEditingCliente(null)
+        setShowForm(false)
+        setError('')
       }
-
-      resetForm()
     } catch (error) {
       console.error('Unexpected error:', error)
       showNotification('error', 'Error inesperado al guardar el cliente')
@@ -278,6 +313,9 @@ export default function ClientesPage() {
     )
   }
 
+  // Debug: mostrar el estado del destacado
+  console.log('Estado actual de highlightedClienteId:', highlightedClienteId)
+  
   return (
     <div className="space-y-8 bg-gradient-to-br from-slate-50 to-blue-50 min-h-screen p-8">
       {/* Header elegante y moderno */}
@@ -361,8 +399,7 @@ export default function ClientesPage() {
                   onChange={(e) => {
                     setFormData({
                       ...formData, 
-                      type: e.target.value,
-                      name: (!editingCliente && e.target.value === 'proveedor') ? '' : formData.name
+                      type: e.target.value
                     })
                   }}
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-all duration-200 text-slate-700" 
@@ -378,48 +415,15 @@ export default function ClientesPage() {
                 <label className="block text-sm font-semibold text-slate-700">
                   Nombre *
                 </label>
-                {formData.type === 'proveedor' ? (
-                  <div className="space-y-3">
-                    {editingCliente ? (
-                      <input
-                        type="text"
-                        value={formData.name}
-                        onChange={(e) => setFormData({...formData, name: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-all duration-200 text-slate-700" 
-                        placeholder="Nombre del proveedor"
-                        required
-                      />
-                    ) : (
-                      <select
-                        value={formData.name}
-                        onChange={(e) => setFormData({...formData, name: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-all duration-200 text-slate-700" 
-                        required
-                      >
-                        <option value="">Seleccionar proveedor</option>
-                        {PROVEEDORES_PREDEFINIDOS.map(proveedor => (
-                          <option key={proveedor} value={proveedor}>
-                            {proveedor}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    {editingCliente && (
-                      <div className="text-xs text-slate-500 bg-slate-100 p-3 rounded-xl border border-slate-200">
-                        💡 Puedes modificar el nombre del proveedor libremente
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-all duration-200 text-slate-700" 
-                    placeholder="Ej: Cliente Final - Juan Pérez"
-                    required
-                  />
-                )}
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({...formData, name: e.target.value})}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-all duration-200 text-slate-700" 
+                  placeholder={formData.type === 'proveedor' ? 'Nombre del proveedor' : 'Ej: Cliente Final - Juan Pérez'}
+                  required
+                />
+                
               </div>
             </div>
 
@@ -493,9 +497,24 @@ export default function ClientesPage() {
                 </tr>
               ) : (
                 filteredClientes.map((cliente) => (
-                  <tr key={cliente.id} className="hover:bg-slate-50 transition-all duration-200 group">
+                  <tr 
+                    key={cliente.id} 
+                    className={`hover:bg-slate-50 transition-all duration-200 group ${
+                      highlightedClienteId === cliente.id 
+                        ? 'bg-gradient-to-r from-green-100 to-emerald-100 border-l-4 border-l-green-600 shadow-xl ring-2 ring-green-200' 
+                        : ''
+                    }`}
+                  >
                     <td className="p-6">
-                      <div className="font-semibold text-slate-800 text-lg">{cliente.name}</div>
+                      <div className="flex items-center gap-3">
+                        <div className="font-semibold text-slate-800 text-lg">{cliente.name}</div>
+                        {highlightedClienteId === cliente.id && (
+                          <div className="flex items-center gap-2 px-3 py-1 bg-green-500 text-white text-xs font-bold rounded-full border-2 border-green-600 animate-pulse shadow-lg">
+                            <CheckCircle size={14} />
+                            <span>NUEVO</span>
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td className="p-6">
                       <span className={`inline-flex px-4 py-2 rounded-xl text-sm font-medium ${

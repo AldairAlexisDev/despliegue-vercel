@@ -8,12 +8,14 @@ import {
   Tag,
   FileText,
   LogOut,
+  X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { supabase } from '../../supabase';
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
   const [role, setRole] = useState<'admin' | 'vendedor' | null>(null)
 
@@ -59,49 +61,86 @@ export default function Sidebar() {
   ]
   const links = allLinks.filter(l => (role ? (l.roles as readonly string[]).includes(role) : true))
 
+  // Cerrar menú móvil al navegar
+  const handleNavClick = () => {
+    setMobileMenuOpen(false);
+  };
+
   return (
-    <aside className={`bg-white border-r border-gray-200 h-screen flex flex-col transition-all duration-300 ${
-      collapsed ? 'w-16' : 'w-64'
-    }`}>
-      {/* Header */}
-      <div className="flex items-center justify-between p-4">
-        {!collapsed && <h1 className="text-xl font-bold">Nueva Era</h1>}
-        <button
-          className="p-1 rounded hover:bg-gray-100"
-          onClick={() => setCollapsed(!collapsed)}
-        >
-          <Menu size={20} />
-        </button>
-      </div>
+    <>
+      {/* Botón de menú móvil - solo visible en móviles */}
+      <button
+        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white rounded-lg shadow-mobile-lg border border-gray-200 touch-target transition-smooth"
+        onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+      >
+        {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+      </button>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-auto">
-        <ul className="space-y-2 px-2">
-          {links.map(({ to, label, icon: Icon }) => (
-            <li key={to}>
-              <NavLink
-                to={to}
-                className={({ isActive }) =>
-                  `flex items-center p-2 rounded-lg hover:bg-gray-100 text-gray-700 ${
-                    isActive ? 'bg-blue-100 text-blue-600' : ''
-                  }`
-                }
-              >
-                <Icon size={20} />
-                {!collapsed && <span className="ml-3">{label}</span>}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-      </nav>
+      {/* Overlay para móviles */}
+      {mobileMenuOpen && (
+        <div 
+          className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-40 transition-smooth"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
 
-      {/* Logout */}
-      <div className="p-4">
-        <button onClick={handleLogout} className="w-full text-left flex items-center p-2 rounded-lg hover:bg-gray-100 text-gray-700">
-          <LogOut size={20} />
-          {!collapsed && <span className="ml-3">Cerrar sesión</span>}
-        </button>
-      </div>
-    </aside>
+      {/* Sidebar principal */}
+      <aside className={`bg-white border-r border-gray-200 h-screen flex flex-col transition-smooth fixed lg:relative z-40 sidebar-mobile ${
+        collapsed ? 'w-16' : 'w-64'
+      } ${
+        mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+      }`}>
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-200">
+          {!collapsed && <h1 className="text-xl font-bold text-gray-800">Nueva Era</h1>}
+          <button
+            className="p-1 rounded hover:bg-gray-100 hidden lg:block touch-target transition-smooth"
+            onClick={() => setCollapsed(!collapsed)}
+          >
+            <Menu size={20} />
+          </button>
+          {/* Botón de cerrar para móviles */}
+          <button
+            className="p-1 rounded hover:bg-gray-100 lg:hidden touch-target transition-smooth"
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 overflow-auto scrollbar-thin">
+          <ul className="space-y-1 px-2 py-4">
+            {links.map(({ to, label, icon: Icon }) => (
+              <li key={to}>
+                <NavLink
+                  to={to}
+                  onClick={handleNavClick}
+                  className={({ isActive }) =>
+                    `flex items-center p-3 rounded-lg hover:bg-gray-100 text-gray-700 transition-smooth touch-target ${
+                      isActive ? 'bg-blue-100 text-blue-600 font-medium' : ''
+                    }`
+                  }
+                >
+                  <Icon size={20} className="flex-shrink-0" />
+                  {!collapsed && <span className="ml-3 truncate">{label}</span>}
+                </NavLink>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        {/* Logout */}
+        <div className="p-4 border-t border-gray-200">
+          <button 
+            onClick={handleLogout} 
+            className="w-full text-left flex items-center p-3 rounded-lg hover:bg-gray-100 text-gray-700 transition-smooth touch-target"
+          >
+            <LogOut size={20} className="flex-shrink-0" />
+            {!collapsed && <span className="ml-3">Cerrar sesión</span>}
+          </button>
+        </div>
+      </aside>
+    </>
   );
 }

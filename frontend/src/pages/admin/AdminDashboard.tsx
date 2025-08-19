@@ -35,63 +35,63 @@ export default function AdminDashboard() {
   }, [])
 
   return (
-    <div className="space-y-6 bg-gray-50 min-h-screen p-6">
+    <div className="space-y-4 sm:space-y-6 min-h-screen">
       {/* Título principal simple */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
-        <h1 className="text-4xl font-bold text-gray-800 mb-4">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6 lg:p-8 text-center">
+        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-800 mb-2 sm:mb-4">
           Panel de Control
         </h1>
-        <p className="text-lg text-gray-600">
+        <p className="text-sm sm:text-base lg:text-lg text-gray-600">
           Bienvenido al sistema de administración
         </p>
       </div>
 
-      {/* Estadísticas principales - Solo 2 tarjetas grandes */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Estadísticas principales - Responsive grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
         {/* Usuarios */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
-          <div className="mb-4">
-            <Users size={48} className="mx-auto text-blue-600" />
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6 lg:p-8 text-center">
+          <div className="mb-3 sm:mb-4">
+            <Users size={32} className="mx-auto text-blue-600 sm:w-12 sm:h-12 lg:w-12 lg:h-12" />
           </div>
-          <div className="text-3xl font-bold text-gray-800 mb-2">
+          <div className="text-2xl sm:text-3xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">
             {stats.usuarios}
           </div>
-          <div className="text-lg text-gray-600">
+          <div className="text-sm sm:text-base lg:text-lg text-gray-600">
             Usuarios Registrados
           </div>
         </div>
 
         {/* Productos */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
-          <div className="mb-4">
-            <Package size={48} className="mx-auto text-green-600" />
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6 lg:p-8 text-center">
+          <div className="mb-3 sm:mb-4">
+            <Package size={32} className="mx-auto text-green-600 sm:w-12 sm:h-12 lg:w-12 lg:h-12" />
           </div>
-          <div className="text-3xl font-bold text-gray-800 mb-2">
+          <div className="text-2xl sm:text-3xl lg:text-3xl font-bold text-gray-800 mb-1 sm:mb-2">
             {stats.productos}
           </div>
-          <div className="text-lg text-gray-600">
+          <div className="text-sm sm:text-base lg:text-lg text-gray-600">
             Productos en Inventario
           </div>
         </div>
       </div>
 
-      {/* Información del sistema - Solo 2 elementos */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
-        <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">
+      {/* Información del sistema - Responsive */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6 lg:p-8">
+        <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6 text-center">
           Estado del Sistema
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-gray-50 p-6 rounded-xl text-center">
-            <h3 className="font-semibold text-gray-800 mb-3">Estado del Servidor</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+          <div className="bg-gray-50 p-4 sm:p-6 rounded-xl text-center">
+            <h3 className="font-semibold text-gray-800 mb-2 sm:mb-3 text-sm sm:text-base">Estado del Servidor</h3>
             <div className="flex items-center justify-center gap-2">
-              <div className="w-4 h-4 bg-green-500 rounded-full"></div>
-              <span className="text-lg font-medium text-green-700">Funcionando</span>
+              <div className="w-3 h-3 sm:w-4 sm:h-4 bg-green-500 rounded-full"></div>
+              <span className="text-sm sm:text-base lg:text-lg font-medium text-green-700">Funcionando</span>
             </div>
           </div>
           
-          <div className="bg-gray-50 p-6 rounded-xl text-center">
-            <h3 className="font-semibold text-gray-800 mb-3">Última Actualización</h3>
-            <p className="text-lg text-gray-700">
+          <div className="bg-gray-50 p-4 sm:p-6 rounded-xl text-center">
+            <h3 className="font-semibold text-gray-800 mb-2 sm:mb-3 text-sm sm:text-base">Última Actualización</h3>
+            <p className="text-sm sm:text-base lg:text-lg text-gray-700">
               {new Date().toLocaleDateString('es-ES', { 
                 day: 'numeric',
                 month: 'long',
