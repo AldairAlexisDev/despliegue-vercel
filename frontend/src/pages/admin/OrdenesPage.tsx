@@ -12,6 +12,7 @@ type NotaPedido = {
   approved_by?: string
   partner_id?: string
   created_at: string
+  fecha_pedido?: string // Fecha personalizada del pedido
   items: NotaPedidoItem[]
   total: number
   estado: 'registrada' | 'confirmada' | 'anulada'
@@ -38,6 +39,8 @@ type NotaPedidoForm = {
   pase_tipo?: 'yo_pase' | 'me_pasen' // Solo para pases
   partner_id?: string
   items: NotaPedidoItem[]
+  fecha_pedido: string // Nueva fecha personalizada para el pedido
+  numero_pedido?: string // Número de pedido manual del usuario
 }
 
 type Producto = {
@@ -69,7 +72,9 @@ export default function NotasPedidoPage() {
   const [formData, setFormData] = useState<NotaPedidoForm>({
     type: 'venta',
     partner_id: '',
-    items: []
+    items: [],
+    fecha_pedido: new Date().toISOString().split('T')[0], // Fecha actual por defecto
+    numero_pedido: '' // Número de pedido manual
   })
 
   // Diálogo de confirmación eliminar
@@ -80,6 +85,8 @@ export default function NotasPedidoPage() {
   // Estado para manejar la creación rápida de clientes
   const [quickClientName, setQuickClientName] = useState('')
   const [isCreatingQuickClient, setIsCreatingQuickClient] = useState(false)
+  
+  
 
   // Estados para estadísticas
   const [stats, setStats] = useState({
@@ -92,42 +99,78 @@ export default function NotasPedidoPage() {
     registradas: 0
   })
 
+  // Función helper para manejar fechas en zona horaria de Lima
+  const formatDateForLima = (dateString: string) => {
+    if (!dateString || dateString === '') {
+      return 'Sin fecha'
+    }
+    
+    try {
+      // Intentar parsear la fecha directamente primero
+      let date = new Date(dateString)
+      
+      // Si la fecha es inválida, intentar con el formato ISO
+      if (isNaN(date.getTime())) {
+        date = new Date(dateString + 'T00:00:00-05:00')
+      }
+      
+      // Verificar que la fecha sea válida
+      if (isNaN(date.getTime())) {
+        return 'Fecha inválida'
+      }
+      
+      return date.toLocaleDateString('es-ES', {
+        weekday: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      })
+    } catch (error) {
+      console.error('Error formateando fecha:', error, dateString)
+      return 'Error fecha'
+    }
+  }
+
   useEffect(() => {
     fetchNotasPedido()
     fetchProductos()
     fetchPartners()
   }, [])
 
+  
+
   async function fetchNotasPedido() {
     try {
       setLoading(true)
       setError('')
       
-             const { data, error: err } = await supabase
-         .from('orders')
-                   .select(`
-            id,
-            type,
-            created_by,
-            approved_by,
-            partner_id,
-            created_at,
-            prestamo_tipo,
-            devolucion_tipo,
-            pase_tipo,
-            order_items (
-              id,
-              order_id,
-              product_id,
-              quantity,
-              unit_price,
-              total_price,
-              products (
-                name
-              )
-            )
-          `)
-         .order('created_at', { ascending: false })
+                           const { data, error: err } = await supabase
+          .from('orders')
+                    .select(`
+             id,
+             type,
+             created_by,
+             approved_by,
+             partner_id,
+             created_at,
+             fecha_pedido,
+             numero_pedido,
+             prestamo_tipo,
+             devolucion_tipo,
+             pase_tipo,
+             order_items (
+               id,
+               order_id,
+               product_id,
+               quantity,
+               unit_price,
+               total_price,
+               products (
+                 name
+               )
+             )
+           `)
+          .order('created_at', { ascending: false })
 
       if (err) {
         console.error('Error fetching notas de pedido:', err)
@@ -147,21 +190,22 @@ export default function NotasPedidoPage() {
             total_price: item.total_price ?? ((item.quantity ?? 0) * (item.unit_price ?? 0))
           }))
 
-          return {
-            id: nota.id,
-            type: nota.type,
-            created_by: nota.created_by,
-            approved_by: nota.approved_by,
-            partner_id: nota.partner_id,
-            created_at: nota.created_at,
-            prestamo_tipo: nota.prestamo_tipo,
-            devolucion_tipo: nota.devolucion_tipo,
-            pase_tipo: nota.pase_tipo,
-            items,
-            total: items.reduce((sum, it) => sum + (it.total_price || 0), 0),
-            estado: nota.approved_by ? 'confirmada' : 'registrada',
-            numero_pedido: data.length - index
-          }
+                     return {
+             id: nota.id,
+             type: nota.type,
+             created_by: nota.created_by,
+             approved_by: nota.approved_by,
+             partner_id: nota.partner_id,
+             created_at: nota.created_at,
+             fecha_pedido: nota.fecha_pedido,
+             prestamo_tipo: nota.prestamo_tipo,
+             devolucion_tipo: nota.devolucion_tipo,
+             pase_tipo: nota.pase_tipo,
+             items,
+             total: items.reduce((sum, it) => sum + (it.total_price || 0), 0),
+             estado: nota.approved_by ? 'confirmada' : 'registrada',
+             numero_pedido: nota.numero_pedido || (data.length - index).toString() // Usar el número manual o generar uno automático como fallback
+           }
         })
 
         setNotasPedido(notasFormateadas)
@@ -199,6 +243,7 @@ export default function NotasPedidoPage() {
 
   async function fetchPartners() {
     try {
+      console.log('🔍 Fetching partners...')
       const { data, error: err } = await supabase
         .from('partners')
         .select('id, name, type, contact')
@@ -210,7 +255,15 @@ export default function NotasPedidoPage() {
       }
 
       if (data) {
+        console.log('✅ Partners fetched:', data)
+        console.log('📊 Partners by type:', {
+          clientes: data.filter(p => p.type === 'cliente').length,
+          proveedores: data.filter(p => p.type === 'proveedor').length,
+          total: data.length
+        })
         setPartners(data)
+      } else {
+        console.log('⚠️ No partners data received')
       }
     } catch (error) {
       console.error('Unexpected error fetching partners:', error)
@@ -296,7 +349,9 @@ export default function NotasPedidoPage() {
       prestamo_tipo: undefined,
       devolucion_tipo: undefined,
       pase_tipo: undefined,
-      items: []
+      items: [],
+      fecha_pedido: new Date().toISOString().split('T')[0], // Fecha actual por defecto
+      numero_pedido: '' // Limpiar número de pedido
     })
     setEditingNota(null)
     setShowForm(false)
@@ -324,22 +379,31 @@ export default function NotasPedidoPage() {
 
   const actualizarItem = (index: number, field: keyof NotaPedidoItem, value: any) => {
     const itemsActualizados = [...formData.items]
-    itemsActualizados[index] = { ...itemsActualizados[index], [field]: value }
+    
+    // Asegurar que el valor no sea null o undefined
+    const safeValue = value || ''
+    
+    itemsActualizados[index] = { ...itemsActualizados[index], [field]: safeValue }
     
     // Calcular total_price
     if (field === 'quantity' || field === 'unit_price') {
       itemsActualizados[index].total_price = 
-        itemsActualizados[index].quantity * itemsActualizados[index].unit_price
+        (itemsActualizados[index].quantity || 0) * (itemsActualizados[index].unit_price || 0)
     }
     
     // Actualizar nombre del producto si se seleccionó uno
     if (field === 'product_id') {
-      const producto = productos.find(p => p.id === value)
+      const producto = productos.find(p => p.id === safeValue)
       if (producto) {
-        itemsActualizados[index].product_name = producto.name
-      } else {
-        itemsActualizados[index].product_name = ''
+        itemsActualizados[index].product_name = producto.name || ''
       }
+    }
+    
+    // Solo limpiar el ID del producto si se está escribiendo manualmente el nombre
+    // y NO si ya hay un producto seleccionado
+    if (field === 'product_name' && !itemsActualizados[index].product_id) {
+      // Solo limpiar si no hay un producto seleccionado previamente
+      itemsActualizados[index].product_id = ''
     }
     
     setFormData({
@@ -457,10 +521,16 @@ export default function NotasPedidoPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (formData.items.length === 0) {
-      alert('Por favor agrega al menos un producto')
-      return
-    }
+         if (formData.items.length === 0) {
+       alert('Por favor agrega al menos un producto')
+       return
+     }
+
+     // Validar que se haya ingresado un número de pedido
+     if (!formData.numero_pedido || formData.numero_pedido.trim() === '') {
+       alert('Por favor ingresa un número de pedido')
+       return
+     }
 
     // Validación diferente para préstamos y devoluciones (sin precio) vs otros tipos (con precio)
     if (formData.type === 'prestamo' || formData.type === 'devolucion') {
@@ -474,6 +544,28 @@ export default function NotasPedidoPage() {
         return
       }
     }
+    
+    // Verificar que todos los productos tengan un ID válido (seleccionados del buscador)
+    if (formData.items.some(item => !item.product_id)) {
+      alert('Por favor selecciona todos los productos de la lista de sugerencias. Asegúrate de hacer clic en una sugerencia para seleccionarla.')
+      return
+    }
+    
+    // Verificar que los IDs de productos sean válidos
+    for (const item of formData.items) {
+      const producto = productos.find(p => p.id === item.product_id)
+      if (!producto) {
+        alert(`El producto "${item.product_name}" no se encontró en la base de datos. Por favor selecciónalo nuevamente.`)
+        return
+      }
+    }
+    
+    // Debug: mostrar información de validación
+    console.log('🔍 Validación de productos:', formData.items.map(item => ({
+      product_name: item.product_name,
+      product_id: item.product_id,
+      valid: !!item.product_id
+    })))
 
     // Validar que se seleccione un partner según el tipo de transacción
     if (formData.type === 'venta' && !formData.partner_id && !quickClientName.trim()) {
@@ -546,16 +638,20 @@ export default function NotasPedidoPage() {
           await applyStockAdjustment(prevItems as any, (prevSign === 1 ? -1 : 1) as 1 | -1)
         }
 
-        const { error } = await supabase
-           .from('orders')
-                       .update({
-              type: formData.type,
-              partner_id: formData.partner_id || null,
-              prestamo_tipo: formData.type === 'prestamo' ? formData.prestamo_tipo : null,
-              devolucion_tipo: formData.type === 'devolucion' ? formData.devolucion_tipo : null,
-              pase_tipo: formData.type === 'pase' ? formData.pase_tipo : null
-            })
-           .eq('id', editingNota.id)
+                 const { error } = await supabase
+            .from('orders')
+                        .update({
+               type: formData.type,
+               partner_id: formData.partner_id || null,
+               prestamo_tipo: formData.type === 'prestamo' ? formData.prestamo_tipo : null,
+               devolucion_tipo: formData.type === 'devolucion' ? formData.devolucion_tipo : null,
+               pase_tipo: formData.type === 'pase' ? formData.pase_tipo : null,
+               fecha_pedido: formData.fecha_pedido ? 
+                 new Date(formData.fecha_pedido + 'T00:00:00-05:00').toISOString() : // Fecha en zona horaria de Lima (UTC-5)
+                 null,
+               numero_pedido: formData.numero_pedido.trim() // Actualizar número de pedido manual
+             })
+            .eq('id', editingNota.id)
 
         if (error) {
           console.error('Error updating nota de pedido:', error)
@@ -596,25 +692,29 @@ export default function NotasPedidoPage() {
           )
         }
 
-        // Actualizar lista local
-        setNotasPedido(notasPedido.map(n => 
-          n.id === editingNota.id 
-            ? { ...n, ...formData, total: calcularTotal() }
-            : n
-        ))
+                 // Actualizar lista local
+         setNotasPedido(notasPedido.map(n => 
+           n.id === editingNota.id 
+             ? { ...n, ...formData, total: calcularTotal(), numero_pedido: formData.numero_pedido.trim() }
+             : n
+         ))
       } else {
-        // Crear nueva nota de pedido
-                 const { data: notaData, error } = await supabase
-           .from('orders')
-                       .insert([{
-              type: formData.type,
-              created_by: (await supabase.auth.getUser()).data.user?.id || null,
-              partner_id: formData.partner_id || null,
-              prestamo_tipo: formData.type === 'prestamo' ? formData.prestamo_tipo : null,
-              devolucion_tipo: formData.type === 'devolucion' ? formData.devolucion_tipo : null,
-              pase_tipo: formData.type === 'pase' ? formData.pase_tipo : null
-            }])
-           .select()
+                 // Crear nueva nota de pedido
+                                    const { data: notaData, error } = await supabase
+             .from('orders')
+                         .insert([{
+                type: formData.type,
+                created_by: (await supabase.auth.getUser()).data.user?.id || null,
+                partner_id: formData.partner_id || null,
+                prestamo_tipo: formData.type === 'prestamo' ? formData.prestamo_tipo : null,
+                devolucion_tipo: formData.type === 'devolucion' ? formData.devolucion_tipo : null,
+                pase_tipo: formData.type === 'pase' ? formData.pase_tipo : null,
+                fecha_pedido: formData.fecha_pedido ? 
+                  new Date(formData.fecha_pedido + 'T00:00:00-05:00').toISOString() : // Fecha en zona horaria de Lima (UTC-5)
+                  new Date().toISOString(),
+                numero_pedido: formData.numero_pedido.trim() // Número de pedido manual del usuario
+              }])
+             .select()
 
         if (error) {
           console.error('Error creating nota de pedido:', error)
@@ -655,14 +755,14 @@ export default function NotasPedidoPage() {
             )
           }
 
-                     // Crear la nueva nota con los items
-           const nuevaNota = {
-             ...notaData[0],
-             items: formData.items,
-             total: calcularTotal(),
-             estado: 'registrada', // Estado por defecto
-             numero_pedido: notasPedido.length + 1 // Número secuencial
-           }
+                                           // Crear la nueva nota con los items
+            const nuevaNota = {
+              ...notaData[0],
+              items: formData.items,
+              total: calcularTotal(),
+              estado: 'registrada', // Estado por defecto
+              numero_pedido: formData.numero_pedido.trim() // Usar el número de pedido manual del usuario
+            }
            
            setNotasPedido([nuevaNota, ...notasPedido])
         }
@@ -688,7 +788,9 @@ export default function NotasPedidoPage() {
       items: nota.items.map(item => ({
         ...item,
         product_name: item.product_name || 'Producto no encontrado'
-      }))
+      })),
+      fecha_pedido: nota.fecha_pedido ? new Date(nota.fecha_pedido).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      numero_pedido: nota.numero_pedido ? nota.numero_pedido.toString() : ''
     })
     setShowForm(true)
   }
@@ -702,13 +804,44 @@ export default function NotasPedidoPage() {
     if (!notaToDelete) return
     try {
       setDeleting(true)
-      // Eliminar items
+      
+      // IMPORTANTE: Revertir el ajuste de stock ANTES de eliminar
+      const notaAEliminar = notasPedido.find(n => n.id === notaToDelete)
+      if (notaAEliminar) {
+        // Obtener el signo del ajuste de stock que se hizo al crear la nota
+        const sign = getStockDeltaSign(
+          notaAEliminar.type,
+          notaAEliminar.prestamo_tipo,
+          notaAEliminar.devolucion_tipo,
+          notaAEliminar.pase_tipo
+        )
+        
+        // Si hay ajuste de stock, revertirlo (cambiar el signo)
+        if (sign !== 0) {
+          console.log(`🔄 Revertiendo stock para nota ${notaAEliminar.numero_pedido}:`, {
+            type: notaAEliminar.type,
+            sign: sign,
+            reverseSign: sign === 1 ? -1 : 1,
+            items: notaAEliminar.items
+          })
+          
+          // Revertir el ajuste de stock (cambiar el signo)
+          await applyStockAdjustment(
+            notaAEliminar.items.map(i => ({ product_id: i.product_id, quantity: i.quantity })),
+            sign === 1 ? -1 : 1 // Invertir el signo
+          )
+        }
+      }
+      
+      // Ahora sí eliminar items y orden
       await supabase.from('order_items').delete().eq('order_id', notaToDelete)
-      // Eliminar orden
       const { error } = await supabase.from('orders').delete().eq('id', notaToDelete)
       if (error) throw error
+      
       setNotasPedido(prev => prev.filter(n => n.id !== notaToDelete))
       fetchNotasPedido()
+      
+      toast.show('Nota de pedido eliminada y stock restaurado correctamente', 'success', 'Éxito')
     } catch (error: any) {
       console.error('Unexpected error:', error)
       toast.show('Error inesperado al eliminar la nota de pedido', 'error', 'Error')
@@ -741,6 +874,10 @@ export default function NotasPedidoPage() {
     )
   }
 
+  // Debug: mostrar el estado de partners
+  console.log('🔍 Estado actual de partners:', partners)
+  console.log('🔍 Estado actual de formData.type:', formData.type)
+  
   return (
     <div className="space-y-8 bg-gray-50 min-h-screen p-6">
       {/* Header mejorado */}
@@ -1202,6 +1339,80 @@ export default function NotasPedidoPage() {
               </div>
             </div>
 
+                         {/* Campo de Fecha */}
+             <div className="space-y-2">
+               <label className="block text-sm font-semibold text-gray-700 mb-2">
+                 Fecha del Pedido *
+               </label>
+               <div className="flex items-center gap-3">
+                 <div className="flex-1 relative">
+                   <input
+                     type="date"
+                     value={formData.fecha_pedido}
+                     onChange={(e) => setFormData({...formData, fecha_pedido: e.target.value})}
+                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white cursor-pointer"
+                     required
+                   />
+                   <div className="absolute right-4 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                     <div className="w-6 h-6 bg-blue-500 rounded-lg flex items-center justify-center">
+                       <span className="text-white text-sm">📅</span>
+                     </div>
+                   </div>
+                 </div>
+                 <div className="flex-shrink-0">
+                   <div className="bg-blue-50 p-3 rounded-xl border border-blue-200 min-w-[200px]">
+                     <div className="text-center">
+                       <div className="text-xs text-blue-600 font-medium mb-1">Fecha seleccionada</div>
+                                              <div className="text-sm text-blue-800 font-semibold">
+                         {formData.fecha_pedido && formData.fecha_pedido.trim() !== '' ? 
+                           formatDateForLima(formData.fecha_pedido)
+                         : 
+                           'Hoy'
+                         }
+                       </div>
+                     </div>
+                   </div>
+                 </div>
+               </div>
+             </div>
+
+             {/* Campo de Número de Pedido */}
+             <div className="space-y-2">
+               <label className="block text-sm font-semibold text-gray-700 mb-2">
+                 Número de Pedido *
+               </label>
+               <div className="flex items-center gap-3">
+                 <div className="flex-1 relative">
+                   <input
+                     type="text"
+                     value={formData.numero_pedido || ''}
+                     onChange={(e) => setFormData({...formData, numero_pedido: e.target.value})}
+                     placeholder="Ej: PED-001, VENT-2024-001, etc."
+                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
+                     required
+                   />
+                   <div className="absolute right-4 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                     <div className="w-6 h-6 bg-purple-500 rounded-lg flex items-center justify-center">
+                       <span className="text-white text-sm">🔢</span>
+                     </div>
+                   </div>
+                 </div>
+                 <div className="flex-shrink-0">
+                   <div className="bg-purple-50 p-3 rounded-xl border border-purple-200 min-w-[200px]">
+                     <div className="text-center">
+                       <div className="text-xs text-purple-600 font-medium mb-1">Formato sugerido</div>
+                       <div className="text-sm text-purple-800 font-semibold">
+                         {formData.type.toUpperCase()}-{new Date().getFullYear()}-001
+                       </div>
+                     </div>
+                   </div>
+                 </div>
+               </div>
+               <p className="text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
+                 💡 Ingresa un número de pedido único para identificar fácilmente esta transacción
+               </p>
+             </div>
+
             {/* Productos */}
             <div className="space-y-4">
               <div className="flex justify-between items-center">
@@ -1233,19 +1444,94 @@ export default function NotasPedidoPage() {
                           <label className="block text-sm font-medium text-gray-700 mb-2">
                             Producto *
                           </label>
-                          <select
-                            value={item.product_id}
-                            onChange={(e) => actualizarItem(index, 'product_id', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                            required
-                          >
-                            <option value="">Seleccionar producto</option>
-                            {productos.map((producto) => (
-                              <option key={producto.id} value={producto.id}>
-                                {producto.name} - {producto.brand} {producto.model}
-                              </option>
-                            ))}
-                          </select>
+                          
+                                                     <div className="relative">
+                             <select
+                               value={item.product_id || ''}
+                               onChange={(e) => {
+                                 const selectedProductId = e.target.value
+                                 if (selectedProductId) {
+                                   const producto = productos.find(p => p.id === selectedProductId)
+                                   if (producto) {
+                                     const itemsActualizados = [...formData.items]
+                                     itemsActualizados[index] = { 
+                                       ...itemsActualizados[index], 
+                                       product_id: producto.id,
+                                       product_name: producto.name || ''
+                                     }
+                                     
+                                     // Calcular total_price si es necesario
+                                     if (itemsActualizados[index].quantity && itemsActualizados[index].unit_price) {
+                                       itemsActualizados[index].total_price = 
+                                         itemsActualizados[index].quantity * itemsActualizados[index].unit_price
+                                     }
+                                     
+                                     setFormData({
+                                       ...formData,
+                                       items: itemsActualizados
+                                     })
+                                   }
+                                 } else {
+                                   // Si se selecciona "Seleccionar producto", limpiar los campos
+                                   const itemsActualizados = [...formData.items]
+                                   itemsActualizados[index] = { 
+                                     ...itemsActualizados[index], 
+                                     product_id: '',
+                                     product_name: ''
+                                   }
+                                   setFormData({
+                                     ...formData,
+                                     items: itemsActualizados
+                                   })
+                                 }
+                               }}
+                               className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white ${
+                                 item.product_id ? 'border-green-300 bg-green-50' : 'border-gray-300'
+                               }`}
+                               required
+                             >
+                               <option value="">Seleccionar producto del inventario</option>
+                               {productos.map((producto) => (
+                                 <option key={producto.id} value={producto.id}>
+                                   {producto.name} - {producto.brand} {producto.model} (Stock: {producto.stock})
+                                 </option>
+                               ))}
+                             </select>
+                             
+                             {/* Indicador de producto seleccionado */}
+                             {item.product_id && (
+                               <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                                 <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
+                                   <span className="text-white text-xs">✓</span>
+                                 </div>
+                               </div>
+                             )}
+                             
+                             {/* Mensaje de producto seleccionado */}
+                             {item.product_id && (
+                               <div className="mt-2 text-xs text-green-600 bg-green-50 px-2 py-1 rounded-md border border-green-200 flex items-center justify-between">
+                                 <span>✓ Producto seleccionado correctamente</span>
+                                 <button
+                                   type="button"
+                                   onClick={() => {
+                                     const itemsActualizados = [...formData.items]
+                                     itemsActualizados[index] = { 
+                                       ...itemsActualizados[index], 
+                                       product_id: '',
+                                       product_name: ''
+                                     }
+                                     setFormData({
+                                       ...formData,
+                                       items: itemsActualizados
+                                     })
+                                   }}
+                                   className="text-red-500 hover:text-red-700 text-xs font-medium"
+                                 >
+                                   Cambiar
+                                 </button>
+                               </div>
+                             )}
+                           </div>
                         </div>
                         
                         <div>
@@ -1444,23 +1730,30 @@ export default function NotasPedidoPage() {
                         </span>
                       )}
                     </td>
-                    <td className="p-6 text-center">
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <div className="text-sm font-medium text-gray-800">
-                          {new Date(nota.created_at).toLocaleDateString('es-ES', { 
-                            year: 'numeric', 
-                            month: 'short', 
-                            day: 'numeric' 
-                          })}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {new Date(nota.created_at).toLocaleTimeString('es-ES', { 
-                            hour: '2-digit', 
-                            minute: '2-digit' 
-                          })}
-                        </div>
-                      </div>
-                    </td>
+                                         <td className="p-6 text-center">
+                       <div className="bg-gray-50 p-3 rounded-lg">
+                         <div className="text-sm font-medium text-gray-800">
+                           {nota.fecha_pedido && nota.fecha_pedido.trim() !== '' ? 
+                             formatDateForLima(nota.fecha_pedido) :
+                             (() => {
+                               try {
+                                 const createdDate = new Date(nota.created_at)
+                                 if (isNaN(createdDate.getTime())) {
+                                   return 'Fecha inválida'
+                                 }
+                                 return createdDate.toLocaleDateString('es-ES', { 
+                                   year: 'numeric', 
+                                   month: 'short', 
+                                   day: 'numeric' 
+                                 })
+                               } catch (error) {
+                                 return 'Error fecha'
+                               }
+                             })()
+                           }
+                         </div>
+                       </div>
+                     </td>
                     <td className="p-6 text-center">
                       <div className="flex justify-center gap-2">
                         <button 

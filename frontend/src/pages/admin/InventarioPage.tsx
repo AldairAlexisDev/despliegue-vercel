@@ -8,6 +8,7 @@ type Producto = {
   name: string
   stock: number
   brand: string
+  brand_id?: string
   model: string
   created_at?: string
 }
@@ -25,13 +26,19 @@ export default function InventarioPage() {
     const channel = supabase
       .channel('products-realtime')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'products' }, (payload: any) => {
-        setProductos(prev => [payload.new as Producto, ...prev].sort((a, b) => a.name.localeCompare(b.name)))
+        // Para productos nuevos, simplemente recargar todo (más eficiente)
+        fetchProductos()
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'products' }, (payload: any) => {
-        setProductos(prev => prev.map(p => (p.id === payload.new.id ? { ...(payload.new as Producto) } : p)).sort((a, b) => a.name.localeCompare(b.name)))
+        // Para productos actualizados, simplemente recargar todo (más eficiente)
+        fetchProductos()
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'products' }, (payload: any) => {
         setProductos(prev => prev.filter(p => p.id !== payload.old.id))
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'brands' }, () => {
+        // Recargar productos cuando cambien las marcas para actualizar nombres
+        fetchProductos()
       })
       .subscribe()
 
@@ -45,19 +52,39 @@ export default function InventarioPage() {
       setLoading(true)
       setError('')
       
-      const { data, error: err } = await supabase
+      // Usamos un JOIN directo para obtener productos con marcas en una sola consulta
+      const { data, error } = await supabase
         .from('products')
-        .select('id, name, stock, brand, model, created_at')
+        .select(`
+          id, 
+          name, 
+          stock, 
+          brand_id, 
+          model, 
+          created_at,
+          brands!left(name)
+        `)
         .order('name', { ascending: true })
 
-      if (err) {
-        console.error('Error fetching productos:', err)
-        setError(`Error al cargar productos: ${err.message}`)
+      if (error) {
+        console.error('Error fetching productos:', error)
+        setError(`Error al cargar productos: ${error.message}`)
         return
       }
 
       if (data) {
-        setProductos(data)
+        // Transformar los datos para mantener compatibilidad
+        const productsWithBrands = data.map((product: any) => ({
+          id: product.id,
+          name: product.name,
+          stock: product.stock,
+          brand_id: product.brand_id,
+          model: product.model,
+          created_at: product.created_at,
+          brand: product.brands?.name || 'Sin marca'
+        }))
+        
+        setProductos(productsWithBrands)
       } else {
         setProductos([])
       }
