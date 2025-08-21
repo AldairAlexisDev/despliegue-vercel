@@ -1,7 +1,9 @@
 // src/pages/admin/InventarioPage.tsx
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../supabase'
-import { Loader2, Search, Package } from 'lucide-react'
+import { Loader2, Search, Package, FileSpreadsheet } from 'lucide-react'
+import ExcelJS from 'exceljs'
+import { saveAs } from 'file-saver'
 
 type Producto = {
   id: string
@@ -18,28 +20,29 @@ export default function InventarioPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     fetchProductos()
 
-    // Suscripción en tiempo real a cambios en products
-    const channel = supabase
-      .channel('products-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'products' }, (payload: any) => {
-        // Para productos nuevos, simplemente recargar todo (más eficiente)
-        fetchProductos()
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'products' }, (payload: any) => {
-        // Para productos actualizados, simplemente recargar todo (más eficiente)
-        fetchProductos()
-      })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'products' }, (payload: any) => {
-        setProductos(prev => prev.filter(p => p.id !== payload.old.id))
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'brands' }, () => {
-        // Recargar productos cuando cambien las marcas para actualizar nombres
-        fetchProductos()
-      })
+         // Suscripción en tiempo real a cambios en products
+     const channel = supabase
+       .channel('products-realtime')
+       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'products' }, () => {
+         // Para productos nuevos, simplemente recargar todo (más eficiente)
+         fetchProductos()
+       })
+       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'products' }, () => {
+         // Para productos actualizados, simplemente recargar todo (más eficiente)
+         fetchProductos()
+       })
+       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'products' }, (payload: any) => {
+         setProductos(prev => prev.filter(p => p.id !== payload.old.id))
+       })
+       .on('postgres_changes', { event: '*', schema: 'public', table: 'brands' }, () => {
+         // Recargar productos cuando cambien las marcas para actualizar nombres
+         fetchProductos()
+       })
       .subscribe()
 
     return () => {
@@ -105,6 +108,174 @@ export default function InventarioPage() {
     )
   }, [productos, searchTerm])
 
+  // Función para exportar a Excel con estilos profesionales
+  const exportToExcel = async () => {
+    try {
+      setExporting(true)
+      
+      // Crear un nuevo workbook
+      const workbook = new ExcelJS.Workbook()
+      const worksheet = workbook.addWorksheet('Inventario')
+      
+      // Definir las columnas con estilos
+      worksheet.columns = [
+        { header: 'N°', key: 'numero', width: 8 },
+        { header: 'Nombre del Producto', key: 'nombre', width: 35 },
+        { header: 'Marca', key: 'marca', width: 20 },
+        { header: 'Modelo', key: 'modelo', width: 20 },
+        { header: 'Stock Actual', key: 'stock', width: 15 }
+      ]
+      
+      // Estilo para el header
+      const headerRow = worksheet.getRow(1)
+      headerRow.height = 30
+      headerRow.eachCell((cell) => {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF1E40AF' } // Azul oscuro
+        }
+        cell.font = {
+          bold: true,
+          color: { argb: 'FFFFFFFF' }, // Blanco
+          size: 12
+        }
+        cell.alignment = {
+          vertical: 'middle',
+          horizontal: 'center'
+        }
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF3B82F6' } },
+          bottom: { style: 'thin', color: { argb: 'FF3B82F6' } },
+          left: { style: 'thin', color: { argb: 'FF3B82F6' } },
+          right: { style: 'thin', color: { argb: 'FF3B82F6' } }
+        }
+      })
+      
+      // Agregar datos con estilos
+      productos.forEach((producto, index) => {
+        const row = worksheet.addRow({
+          numero: index + 1,
+          nombre: producto.name,
+          marca: producto.brand,
+          modelo: producto.model,
+          stock: producto.stock
+        })
+        
+        // Estilos para cada fila
+        row.height = 25
+        row.eachCell((cell, colNumber) => {
+          // Bordes para todas las celdas
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+            bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+            left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+            right: { style: 'thin', color: { argb: 'FFE5E7EB' } }
+          }
+          
+          // Estilos específicos por columna
+          if (colNumber === 1) { // Número
+            cell.alignment = { horizontal: 'center', vertical: 'middle' }
+            cell.font = { bold: true, color: { argb: 'FF1E40AF' } }
+          } else if (colNumber === 5) { // Stock
+            cell.alignment = { horizontal: 'center', vertical: 'middle' }
+            cell.font = { bold: true }
+            if (producto.stock > 2) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } } // Verde claro
+              cell.font.color = { argb: 'FF166534' } // Verde oscuro
+            } else if (producto.stock > 0) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } } // Amarillo claro
+              cell.font.color = { argb: 'FF92400E' } // Amarillo oscuro
+            } else {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } } // Rojo claro
+              cell.font.color = { argb: 'FF991B1B' } // Rojo oscuro
+            }
+          } else {
+            cell.alignment = { vertical: 'middle' }
+          }
+        })
+      })
+      
+      // Agregar título principal
+      const titleRow = worksheet.addRow(['INVENTARIO DE PRODUCTOS - NUEVA ERA'])
+      titleRow.height = 40
+      const titleCell = titleRow.getCell(1)
+      titleCell.font = {
+        bold: true,
+        size: 16,
+        color: { argb: 'FF1E40AF' }
+      }
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
+      
+      // Agregar información de exportación
+      const infoRow = worksheet.addRow([`Exportado el: ${new Date().toLocaleDateString('es-ES', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })} • Total de productos: ${productos.length}`])
+      infoRow.height = 25
+      const infoCell = infoRow.getCell(1)
+      infoCell.font = {
+        italic: true,
+        size: 10,
+        color: { argb: 'FF6B7280' }
+      }
+      infoCell.alignment = { horizontal: 'center', vertical: 'middle' }
+      
+      // Ajustar el header para que esté en la fila 3
+      const newHeaderRow = worksheet.getRow(3)
+      newHeaderRow.height = 30
+      newHeaderRow.eachCell((cell) => {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF1E40AF' }
+        }
+        cell.font = {
+          bold: true,
+          color: { argb: 'FFFFFFFF' },
+          size: 12
+        }
+        cell.alignment = {
+          vertical: 'middle',
+          horizontal: 'center'
+        }
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF3B82F6' } },
+          bottom: { style: 'thin', color: { argb: 'FF3B82F6' } },
+          left: { style: 'thin', color: { argb: 'FF3B82F6' } },
+          right: { style: 'thin', color: { argb: 'FF3B82F6' } }
+        }
+      })
+      
+      // Generar el archivo Excel
+      const buffer = await workbook.xlsx.writeBuffer()
+      const data = new Blob([buffer], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      })
+      
+      // Generar nombre del archivo con fecha
+      const today = new Date()
+      const fileName = `Inventario_NuevaEra_${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}_${String(today.getHours()).padStart(2, '0')}-${String(today.getMinutes()).padStart(2, '0')}.xlsx`
+      
+      // Descargar el archivo
+      saveAs(data, fileName)
+      
+      // Mostrar mensaje de éxito
+      setTimeout(() => {
+        alert(`✅ Inventario exportado exitosamente a "${fileName}"`)
+      }, 100)
+      
+    } catch (error) {
+      console.error('Error exportando a Excel:', error)
+      alert('❌ Error al exportar el inventario. Por favor, inténtalo de nuevo.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full bg-gradient-to-br from-slate-50 to-blue-50">
@@ -168,22 +339,45 @@ export default function InventarioPage() {
               </div>
               <div className="text-sm text-slate-600">Sin Stock</div>
             </div>
+            
+            {/* Botón de Exportación a Excel */}
+            <div className="flex-shrink-0">
+              <button
+                onClick={exportToExcel}
+                disabled={exporting || productos.length === 0}
+                className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:from-green-600 hover:to-emerald-600 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:hover:scale-100"
+                title="Exportar inventario a Excel"
+              >
+                {exporting ? (
+                  <Loader2 size={20} className="animate-spin" />
+                ) : (
+                  <FileSpreadsheet size={20} />
+                )}
+                <span className="font-semibold">
+                  {exporting ? 'Exportando...' : 'Exportar a Excel'}
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Búsqueda moderna y elegante */}
-      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6">
-        <div className="relative w-full md:w-96">
-          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-          <input
-            type="text"
-            placeholder="Buscar por nombre, marca o modelo..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-all duration-300 text-slate-700 text-base placeholder-slate-400"
-          />
-        </div>
+             {/* Búsqueda */}
+       <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6">
+         <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+           <div className="relative w-full md:w-96">
+             <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+             <input
+               type="text"
+               placeholder="Buscar por nombre, marca o modelo..."
+               value={searchTerm}
+               onChange={(e) => setSearchTerm(e.target.value)}
+               className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-all duration-300 text-slate-700 text-base placeholder-slate-400"
+             />
+           </div>
+         </div>
+        
+        
       </div>
 
       {/* Tabla de productos moderna */}

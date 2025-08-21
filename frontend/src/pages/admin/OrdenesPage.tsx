@@ -1,7 +1,7 @@
 // src/pages/admin/NotasPedidoPage.tsx
 import { useEffect, useState } from 'react'
 import { supabase } from '../../supabase'
-import { Loader2, Plus, Search, Edit, Trash2, X, Save, Wallet, ShoppingCart, Package, AlertCircle, ArrowUpDown, FileText } from 'lucide-react'
+import { Loader2, Plus, Search, Edit, Trash2, X, Save, Wallet, ShoppingCart, Package, AlertCircle, ArrowUpDown, FileText, Eye } from 'lucide-react'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { useToast } from '../../components/Toast'
 
@@ -81,6 +81,10 @@ export default function NotasPedidoPage() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [notaToDelete, setNotaToDelete] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  // Estado para mostrar detalles de la nota
+  const [showDetails, setShowDetails] = useState(false)
+  const [selectedNota, setSelectedNota] = useState<NotaPedido | null>(null)
 
   // Estado para manejar la creación rápida de clientes
   const [quickClientName, setQuickClientName] = useState('')
@@ -698,15 +702,15 @@ export default function NotasPedidoPage() {
           )
         }
 
-                 // Actualizar lista local
-         setNotasPedido(notasPedido.map(n => 
-           n.id === editingNota.id 
-             ? { ...n, ...formData, total: calcularTotal(), numero_pedido: formData.numero_pedido.trim() }
-             : n
-         ))
-      } else {
-                 // Crear nueva nota de pedido
-                                    const { data: notaData, error } = await supabase
+                  // Actualizar lista local
+          setNotasPedido(notasPedido.map(n => 
+            n.id === editingNota.id 
+              ? { ...n, ...formData, total: calcularTotal(), numero_pedido: parseInt(formData.numero_pedido?.trim() || '0') || 0 }
+              : n
+          ))
+        } else {
+                  // Crear nueva nota de pedido
+                                     const { data: notaData, error } = await supabase
              .from('orders')
                          .insert([{
                 type: formData.type,
@@ -1453,57 +1457,100 @@ export default function NotasPedidoPage() {
                           </label>
                           
                                                      <div className="relative">
-                             <select
-                               value={item.product_id || ''}
-                               onChange={(e) => {
-                                 const selectedProductId = e.target.value
-                                 if (selectedProductId) {
-                                   const producto = productos.find(p => p.id === selectedProductId)
-                                   if (producto) {
-                                     const itemsActualizados = [...formData.items]
-                                     itemsActualizados[index] = { 
-                                       ...itemsActualizados[index], 
-                                       product_id: producto.id,
-                                       product_name: producto.name || ''
-                                     }
-                                     
-                                     // Calcular total_price si es necesario
-                                     if (itemsActualizados[index].quantity && itemsActualizados[index].unit_price) {
-                                       itemsActualizados[index].total_price = 
-                                         itemsActualizados[index].quantity * itemsActualizados[index].unit_price
-                                     }
-                                     
-                                     setFormData({
-                                       ...formData,
-                                       items: itemsActualizados
-                                     })
-                                   }
-                                 } else {
-                                   // Si se selecciona "Seleccionar producto", limpiar los campos
+                             {/* Campo de búsqueda */}
+                             <div className="relative">
+                               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                               <input
+                                 type="text"
+                                 placeholder="Buscar producto por nombre, marca o modelo..."
+                                 value={item.product_name || ''}
+                                 onChange={(e) => {
+                                   const searchTerm = e.target.value
                                    const itemsActualizados = [...formData.items]
                                    itemsActualizados[index] = { 
                                      ...itemsActualizados[index], 
-                                     product_id: '',
-                                     product_name: ''
+                                     product_name: searchTerm
                                    }
                                    setFormData({
                                      ...formData,
                                      items: itemsActualizados
                                    })
-                                 }
-                               }}
-                               className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white ${
-                                 item.product_id ? 'border-green-300 bg-green-50' : 'border-gray-300'
-                               }`}
-                               required
-                             >
-                               <option value="">Seleccionar producto del inventario</option>
-                               {productos.map((producto) => (
-                                 <option key={producto.id} value={producto.id}>
-                                   {producto.name} - {producto.brand} {producto.model} (Stock: {producto.stock})
-                                 </option>
-                               ))}
-                             </select>
+                                 }}
+                                 className={`w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white ${
+                                   item.product_id ? 'border-green-300 bg-green-50' : 'border-gray-300'
+                                 }`}
+                                 required
+                               />
+                             </div>
+                             
+                             {/* Dropdown de resultados de búsqueda */}
+                             {item.product_name && !item.product_id && (
+                               <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                                                                   {productos
+                                    .filter(producto => {
+                                      // Validar que todos los campos existan antes de hacer la búsqueda
+                                      const searchTerm = item.product_name?.toLowerCase() || ''
+                                      const productName = producto.name?.toLowerCase() || ''
+                                      const productBrand = producto.brand?.toLowerCase() || ''
+                                      const productModel = producto.model?.toLowerCase() || ''
+                                      
+                                      return productName.includes(searchTerm) ||
+                                             productBrand.includes(searchTerm) ||
+                                             productModel.includes(searchTerm)
+                                    })
+                                    .slice(0, 10) // Limitar a 10 resultados para mejor rendimiento
+                                    .map((producto) => (
+                                     <div
+                                       key={producto.id}
+                                       onClick={() => {
+                                         const itemsActualizados = [...formData.items]
+                                         itemsActualizados[index] = { 
+                                           ...itemsActualizados[index], 
+                                           product_id: producto.id,
+                                           product_name: producto.name
+                                         }
+                                         
+                                         // Calcular total_price si es necesario
+                                         if (itemsActualizados[index].quantity && itemsActualizados[index].unit_price) {
+                                           itemsActualizados[index].total_price = 
+                                             itemsActualizados[index].quantity * itemsActualizados[index].unit_price
+                                         }
+                                         
+                                         setFormData({
+                                           ...formData,
+                                           items: itemsActualizados
+                                         })
+                                       }}
+                                       className="px-3 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors duration-150"
+                                     >
+                                       <div className="font-medium text-gray-800">{producto.name}</div>
+                                       <div className="text-sm text-gray-600">
+                                         {producto.brand} {producto.model} • Stock: {producto.stock}
+                                       </div>
+                                     </div>
+                                   ))}
+                                 {productos.filter(producto => {
+                                   // Validar que todos los campos existan antes de hacer la búsqueda
+                                   const searchTerm = item.product_name?.toLowerCase() || ''
+                                   const productName = producto.name?.toLowerCase() || ''
+                                   const productBrand = producto.brand?.toLowerCase() || ''
+                                   const productModel = producto.model?.toLowerCase() || ''
+                                   
+                                   return productName.includes(searchTerm) ||
+                                          productBrand.includes(searchTerm) ||
+                                          productModel.includes(searchTerm)
+                                 }).length === 0 && (
+                                   <div className="px-3 py-2 text-gray-500 text-sm">
+                                     No se encontraron productos
+                                   </div>
+                                 )}
+                                 
+                                 {/* Mensaje de ayuda */}
+                                 <div className="px-3 py-2 text-xs text-gray-500 bg-gray-50 border-t border-gray-100">
+                                   💡 Escribe para buscar productos • Haz clic para seleccionar
+                                 </div>
+                               </div>
+                             )}
                              
                              {/* Indicador de producto seleccionado */}
                              {item.product_id && (
@@ -1761,24 +1808,34 @@ export default function NotasPedidoPage() {
                          </div>
                        </div>
                      </td>
-                    <td className="p-6 text-center">
-                      <div className="flex justify-center gap-2">
-                        <button 
-                          className="p-3 text-blue-600 hover:bg-blue-50 rounded-xl transition-all duration-200 hover:scale-110"
-                          onClick={() => handleEdit(nota)}
-                          title="Editar"
-                        >
-                          <Edit size={18} />
-                        </button>
-                        <button 
-                          className="p-3 text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200 hover:scale-110"
-                          onClick={() => openDeleteDialog(nota.id)}
-                          title="Eliminar"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </td>
+                                         <td className="p-6 text-center">
+                       <div className="flex justify-center gap-2">
+                         <button 
+                           className="p-3 text-blue-600 hover:bg-blue-50 rounded-xl transition-all duration-200 hover:scale-110"
+                           onClick={() => handleEdit(nota)}
+                           title="Editar"
+                         >
+                           <Edit size={18} />
+                         </button>
+                         <button 
+                           className="p-3 text-gray-600 hover:bg-gray-50 rounded-xl transition-all duration-200 hover:scale-110"
+                           onClick={() => {
+                             setSelectedNota(nota)
+                             setShowDetails(true)
+                           }}
+                           title="Ver detalles"
+                         >
+                           <Eye size={18} />
+                         </button>
+                         <button 
+                           className="p-3 text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200 hover:scale-110"
+                           onClick={() => openDeleteDialog(nota.id)}
+                           title="Eliminar"
+                         >
+                           <Trash2 size={18} />
+                         </button>
+                       </div>
+                     </td>
                   </tr>
                 ))
               )}
@@ -1787,18 +1844,186 @@ export default function NotasPedidoPage() {
         </div>
       </div>
 
-      {/* Dialogo Confirmación Eliminar */}
-      <ConfirmDialog
-        open={confirmOpen}
-        title="Eliminar nota de pedido"
-        description="Esta acción no se puede deshacer. Se eliminará la nota y todos sus items."
-        confirmText="Eliminar"
-        cancelText="Cancelar"
-        variant="danger"
-        loading={deleting}
-        onConfirm={confirmDelete}
-        onCancel={() => { if (!deleting) { setConfirmOpen(false); setNotaToDelete(null) } }}
-      />
+             {/* Dialogo Confirmación Eliminar */}
+       <ConfirmDialog
+         open={confirmOpen}
+         title="Eliminar nota de pedido"
+         description="Esta acción no se puede deshacer. Se eliminará la nota y todos sus items."
+         confirmText="Eliminar"
+         cancelText="Cancelar"
+         variant="danger"
+         loading={deleting}
+         onConfirm={confirmDelete}
+         onCancel={() => { if (!deleting) { setConfirmOpen(false); setNotaToDelete(null) } }}
+       />
+
+               {/* Modal de Detalles de la Nota */}
+        {showDetails && selectedNota && (
+          <div className="fixed inset-0 bg-black/10 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6 border-b border-gray-200">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-2xl font-bold text-gray-800">
+                    Detalles de la Nota de Pedido #{selectedNota.numero_pedido || 'N/A'}
+                  </h2>
+                  <button 
+                    onClick={() => {
+                      setShowDetails(false)
+                      setSelectedNota(null)
+                    }}
+                    className="p-2 hover:bg-gray-100 rounded-xl transition-colors duration-200"
+                  >
+                    <X size={24} className="text-gray-500" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-6 space-y-6">
+                {/* Información General */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-gray-50 p-4 rounded-xl">
+                    <h3 className="font-semibold text-gray-700 mb-3">Información General</h3>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Tipo:</span>
+                        <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${getTypeColor(selectedNota.type)}`}>
+                          {getTypeIcon(selectedNota.type)}
+                          {getTypeLabel(selectedNota.type, selectedNota.prestamo_tipo, selectedNota.devolucion_tipo, selectedNota.pase_tipo)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Fecha del Pedido:</span>
+                        <span className="font-medium">
+                          {selectedNota.fecha_pedido && selectedNota.fecha_pedido.trim() !== '' ? 
+                            formatDateForLima(selectedNota.fecha_pedido) :
+                            formatDateForLima(selectedNota.created_at)
+                          }
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-gray-50 p-4 rounded-xl">
+                    <h3 className="font-semibold text-gray-700 mb-3">Cliente/Proveedor</h3>
+                    {selectedNota.partner_id ? (
+                      (() => {
+                        const partner = partners.find(p => p.id === selectedNota.partner_id)
+                        return partner ? (
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Nombre:</span>
+                              <span className="font-medium">{partner.name}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Tipo:</span>
+                              <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
+                                {partner.type}
+                              </span>
+                            </div>
+                            {partner.contact && (
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Contacto:</span>
+                                <span className="font-medium">{partner.contact}</span>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">Partner no encontrado</span>
+                        )
+                      })()
+                    ) : (
+                      <span className="text-gray-400">Sin partner</span>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Productos */}
+                <div className="bg-gray-50 p-4 rounded-xl">
+                  <h3 className="font-semibold text-gray-700 mb-3">Productos ({selectedNota.items.length})</h3>
+                  <div className="space-y-3">
+                    {selectedNota.items.map((item, index) => (
+                      <div key={index} className="bg-white p-3 rounded-lg border border-gray-200">
+                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                          <div>
+                            <span className="text-sm text-gray-600">Producto:</span>
+                            <div className="font-medium">{item.product_name}</div>
+                          </div>
+                          <div>
+                            <span className="text-sm text-gray-600">Modelo:</span>
+                            <div className="font-medium">
+                              {(() => {
+                                const producto = productos.find(p => p.id === item.product_id)
+                                return producto?.model || 'N/A'
+                              })()}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="text-sm text-gray-600">Cantidad:</span>
+                            <div className="font-medium">{item.quantity}</div>
+                          </div>
+                          <div>
+                            <span className="text-sm text-gray-600">Precio Unitario:</span>
+                            <div className="font-medium">
+                              {selectedNota.type === 'prestamo' || selectedNota.type === 'devolucion' ? 
+                                'N/A' : 
+                                `S/. ${item.unit_price?.toFixed(2) || '0.00'}`
+                              }
+                            </div>
+                          </div>
+                          <div>
+                            <span className="text-sm text-gray-600">Total:</span>
+                            <div className="font-medium">
+                              {selectedNota.type === 'prestamo' || selectedNota.type === 'devolucion' ? 
+                                'N/A' : 
+                                `S/. ${item.total_price?.toFixed(2) || '0.00'}`
+                              }
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Total */}
+                {selectedNota.type !== 'prestamo' && selectedNota.type !== 'devolucion' && (
+                  <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                    <div className="text-center">
+                      <span className="text-sm text-blue-600 font-medium">Total de la Transacción</span>
+                      <div className="text-3xl font-bold text-blue-800 mt-2">
+                        S/. {selectedNota.total.toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+             
+             <div className="p-6 border-t border-gray-200 bg-gray-50">
+               <div className="flex justify-end gap-3">
+                 <button
+                   onClick={() => {
+                     setShowDetails(false)
+                     setSelectedNota(null)
+                   }}
+                   className="px-6 py-2 bg-gray-500 text-white rounded-xl hover:bg-gray-600 transition-colors duration-200 font-medium"
+                 >
+                   Cerrar
+                 </button>
+                 <button
+                   onClick={() => {
+                     setShowDetails(false)
+                     setSelectedNota(null)
+                     handleEdit(selectedNota)
+                   }}
+                   className="px-6 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors duration-200 font-medium"
+                 >
+                   Editar Nota
+                 </button>
+               </div>
+             </div>
+           </div>
+         </div>
+       )}
 
       {/* Información adicional mejorada */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 text-center">
