@@ -301,7 +301,7 @@ export default function NotasPedidoPage() {
       case 'venta':
         return -1
       case 'pase':
-        return pase === 'yo_pase' ? 1 : -1
+        return pase === 'yo_pase' ? -1 : 1
       case 'prestamo':
         return prestamo === 'yo_presto' ? -1 : 1
       case 'devolucion':
@@ -1021,13 +1021,14 @@ export default function NotasPedidoPage() {
                 </select>
               </div>
 
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  {formData.type === 'venta' || formData.type === 'pase' ? 'Cliente' : 
-                   formData.type === 'compra' ? 'Proveedor' : 
-                   formData.type === 'prestamo' ? 'Tipo de Préstamo' :
-                   'Partner/Cliente'}
-                </label>
+                             <div className="space-y-2">
+                 <label className="block text-sm font-semibold text-gray-700 mb-2">
+                   {formData.type === 'venta' ? 'Cliente' : 
+                    formData.type === 'pase' ? 'Tipo de Pase' :
+                    formData.type === 'compra' ? 'Proveedor' : 
+                    formData.type === 'prestamo' ? 'Tipo de Préstamo' :
+                    'Partner/Cliente'}
+                 </label>
                 
                 {formData.type === 'prestamo' ? (
                   <div className="space-y-3">
