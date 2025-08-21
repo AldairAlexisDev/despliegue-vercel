@@ -73,7 +73,7 @@ export default function NotasPedidoPage() {
     type: 'venta',
     partner_id: '',
     items: [],
-    fecha_pedido: new Date().toISOString().split('T')[0], // Fecha actual por defecto
+    fecha_pedido: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }), // Fecha actual en zona horaria de Lima
     numero_pedido: '' // Número de pedido manual
   })
 
@@ -106,11 +106,15 @@ export default function NotasPedidoPage() {
     }
     
     try {
-      // Intentar parsear la fecha directamente primero
-      let date = new Date(dateString)
+      // Crear fecha en zona horaria de Lima (UTC-5)
+      let date: Date
       
-      // Si la fecha es inválida, intentar con el formato ISO
-      if (isNaN(date.getTime())) {
+      if (dateString.includes('T')) {
+        // Si ya tiene formato ISO, parsear directamente
+        date = new Date(dateString)
+      } else {
+        // Si es solo fecha (YYYY-MM-DD), crear en zona horaria de Lima
+        // Esto asegura que la fecha se interprete en hora local de Perú
         date = new Date(dateString + 'T00:00:00-05:00')
       }
       
@@ -119,11 +123,13 @@ export default function NotasPedidoPage() {
         return 'Fecha inválida'
       }
       
+      // Formatear en español con zona horaria de Lima
       return date.toLocaleDateString('es-ES', {
         weekday: 'short',
         year: 'numeric',
         month: 'short',
-        day: 'numeric'
+        day: 'numeric',
+        timeZone: 'America/Lima'
       })
     } catch (error) {
       console.error('Error formateando fecha:', error, dateString)
@@ -350,7 +356,7 @@ export default function NotasPedidoPage() {
       devolucion_tipo: undefined,
       pase_tipo: undefined,
       items: [],
-      fecha_pedido: new Date().toISOString().split('T')[0], // Fecha actual por defecto
+      fecha_pedido: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }), // Fecha actual en zona horaria de Lima
       numero_pedido: '' // Limpiar número de pedido
     })
     setEditingNota(null)
@@ -1682,11 +1688,11 @@ export default function NotasPedidoPage() {
               ) : (
                 filteredNotas.map((nota) => (
                   <tr key={nota.id} className="hover:bg-gray-50 transition-all duration-200 group">
-                    <td className="p-6 text-center">
-                      <span className="inline-flex items-center justify-center w-12 h-12 bg-blue-100 text-blue-800 rounded-full font-bold text-lg">
-                        #{nota.numero_pedido || 'N/A'}
-                      </span>
-                    </td>
+                                         <td className="p-6 text-center">
+                       <span className="text-blue-800 font-bold text-lg">
+                         #{nota.numero_pedido || 'N/A'}
+                       </span>
+                     </td>
                     <td className="p-6 text-center">
                       <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium ${getTypeColor(nota.type)}`}>
                         {getTypeIcon(nota.type)}
