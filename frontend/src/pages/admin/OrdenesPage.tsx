@@ -1,5 +1,5 @@
 // src/pages/admin/NotasPedidoPage.tsx
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo, useCallback, memo } from 'react'
 import { supabase } from '../../supabase'
 import { Loader2, Plus, Search, Edit, Trash2, X, Save, Wallet, ShoppingCart, Package, AlertCircle, ArrowUpDown, FileText, Eye } from 'lucide-react'
 import ConfirmDialog from '../../components/ConfirmDialog'
@@ -11,6 +11,7 @@ type NotaPedido = {
   created_by: string
   approved_by?: string
   partner_id?: string
+  partner?: Partner
   created_at: string
   fecha_pedido?: string // Fecha personalizada del pedido
   items: NotaPedidoItem[]
@@ -77,18 +78,20 @@ export default function NotasPedidoPage() {
     numero_pedido: '' // Número de pedido manual
   })
 
-  // Diálogo de confirmación eliminar
-  const [confirmOpen, setConfirmOpen] = useState(false)
-  const [notaToDelete, setNotaToDelete] = useState<string | null>(null)
-  const [deleting, setDeleting] = useState(false)
-
-  // Estado para mostrar detalles de la nota
-  const [showDetails, setShowDetails] = useState(false)
-  const [selectedNota, setSelectedNota] = useState<NotaPedido | null>(null)
-
-  // Estado para manejar la creación rápida de clientes
-  const [quickClientName, setQuickClientName] = useState('')
-  const [isCreatingQuickClient, setIsCreatingQuickClient] = useState(false)
+  // Estados consolidados para mejor gestión
+  const [uiState, setUiState] = useState({
+    // Diálogo de confirmación
+    confirmOpen: false,
+    notaToDelete: null as string | null,
+    deleting: false,
+    deleteError: null as string | null,
+    // Modal de detalles
+    showDetails: false,
+    selectedNota: null as NotaPedido | null,
+    // Cliente rápido
+    quickClientName: '',
+    isCreatingQuickClient: false
+  })
   
   
 
@@ -154,41 +157,57 @@ export default function NotasPedidoPage() {
       setLoading(true)
       setError('')
       
-                           const { data, error: err } = await supabase
-          .from('orders')
-                    .select(`
-             id,
-             type,
-             created_by,
-             approved_by,
-             partner_id,
-             created_at,
-             fecha_pedido,
-             numero_pedido,
-             prestamo_tipo,
-             devolucion_tipo,
-             pase_tipo,
-             order_items (
-               id,
-               order_id,
-               product_id,
-               quantity,
-               unit_price,
-               total_price,
-               products (
-                 name
-               )
-             )
-           `)
-          .order('created_at', { ascending: false })
+      console.log('🔄 Iniciando fetch de notas de pedido...')
+      
+      // Timeout de seguridad para evitar pantalla en blanco
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Timeout: La operación tardó demasiado')), 30000) // 30 segundos
+      })
+      
+      const fetchPromise = supabase
+        .from('orders')
+        .select(`
+          id,
+          type,
+          created_by,
+          approved_by,
+          partner_id,
+          created_at,
+          fecha_pedido,
+          numero_pedido,
+          prestamo_tipo,
+          devolucion_tipo,
+          pase_tipo,
+          partners (
+            id,
+            name,
+            type,
+            contact
+          ),
+          order_items (
+            id,
+            order_id,
+            product_id,
+            quantity,
+            unit_price,
+            total_price,
+            products (
+              name
+            )
+          )
+        `)
+        .order('created_at', { ascending: false })
+
+      const { data, error: err } = await Promise.race([fetchPromise, timeoutPromise]) as any
 
       if (err) {
-        console.error('Error fetching notas de pedido:', err)
+        console.error('❌ Error fetching notas de pedido:', err)
         setError(`Error al cargar notas de pedido: ${err.message}`)
         return
       }
 
       if (data) {
+        console.log('📊 Raw data from orders:', data)
         const notasFormateadas: NotaPedido[] = data.map((nota: any, index: number) => {
           const items: NotaPedidoItem[] = (nota.order_items || []).map((item: any) => ({
             id: item.id,
@@ -200,12 +219,13 @@ export default function NotasPedidoPage() {
             total_price: item.total_price ?? ((item.quantity ?? 0) * (item.unit_price ?? 0))
           }))
 
-                     return {
+          const notaFormateada = {
              id: nota.id,
              type: nota.type,
              created_by: nota.created_by,
              approved_by: nota.approved_by,
              partner_id: nota.partner_id,
+             partner: nota.partners,
              created_at: nota.created_at,
              fecha_pedido: nota.fecha_pedido,
              prestamo_tipo: nota.prestamo_tipo,
@@ -213,20 +233,35 @@ export default function NotasPedidoPage() {
              pase_tipo: nota.pase_tipo,
              items,
              total: items.reduce((sum, it) => sum + (it.total_price || 0), 0),
-             estado: nota.approved_by ? 'confirmada' : 'registrada',
+             estado: (nota.approved_by ? 'confirmada' : 'registrada') as NotaPedido['estado'],
              numero_pedido: nota.numero_pedido || (data.length - index).toString() // Usar el número manual o generar uno automático como fallback
            }
+          
+          console.log(`📝 Nota ${nota.id}:`, {
+            partner_id: nota.partner_id,
+            partner: nota.partners,
+            items: items.length
+          })
+          
+          return notaFormateada
         })
 
+        console.log(`✅ Procesadas ${notasFormateadas.length} notas de pedido`)
         setNotasPedido(notasFormateadas)
         calcularEstadisticas(notasFormateadas)
       } else {
+        console.log('⚠️ No se recibieron datos de notas de pedido')
         setNotasPedido([])
       }
     } catch (error) {
-      console.error('Unexpected error:', error)
+      console.error('💥 Error inesperado en fetchNotasPedido:', error)
       setError('Error inesperado al cargar las notas de pedido')
+      // En caso de error, mantener las notas existentes si las hay
+      if (notasPedido.length === 0) {
+        setNotasPedido([])
+      }
     } finally {
+      console.log('🏁 Finalizando fetch de notas de pedido')
       setLoading(false)
     }
   }
@@ -342,17 +377,21 @@ export default function NotasPedidoPage() {
     }
   }
 
-  const filteredNotas = notasPedido.filter(nota => {
-    const matchesSearch = 
-      (nota.numero_pedido && nota.numero_pedido.toString().includes(searchTerm)) ||
-      nota.items.some(item => item.product_name.toLowerCase().includes(searchTerm.toLowerCase()))
-    
-    const matchesType = filterType === 'todos' || nota.type === filterType
-    
-    return matchesSearch && matchesType
-  })
+  // Optimización: usar useMemo para filtros costosos
+  const filteredNotas = useMemo(() => {
+    return notasPedido.filter(nota => {
+      const matchesSearch = 
+        (nota.numero_pedido && nota.numero_pedido.toString().includes(searchTerm)) ||
+        nota.items.some(item => item.product_name.toLowerCase().includes(searchTerm.toLowerCase()))
+      
+      const matchesType = filterType === 'todos' || nota.type === filterType
+      
+      return matchesSearch && matchesType
+    })
+  }, [notasPedido, searchTerm, filterType])
 
-  const resetForm = () => {
+  // Optimización: useCallback para funciones que se pasan como props
+  const resetForm = useCallback(() => {
     setFormData({
       type: 'venta',
       partner_id: '',
@@ -366,8 +405,8 @@ export default function NotasPedidoPage() {
     setEditingNota(null)
     setShowForm(false)
     setError('') // Limpiar errores también
-    setQuickClientName('') // Limpiar también el cliente rápido
-  }
+    setUiState(prev => ({ ...prev, quickClientName: '' }))
+  }, [])
 
   const agregarItem = () => {
     setFormData({
@@ -429,18 +468,19 @@ export default function NotasPedidoPage() {
     })
   }
 
-  const calcularTotal = () => {
+  // Optimización: useMemo para cálculo de total
+  const calcularTotal = useMemo(() => {
     return formData.items.reduce((sum, item) => sum + item.total_price, 0)
-  }
+  }, [formData.items])
 
-  // Función para crear cliente/partner rápidamente
-  const crearClienteRapido = async (nombrePartner: string) => {
+  // Optimización: useCallback para funciones async
+  const crearClienteRapido = useCallback(async (nombrePartner: string) => {
     if (!nombrePartner.trim()) {
       alert('Por favor ingresa un nombre')
       return
     }
 
-    setIsCreatingQuickClient(true)
+    setUiState(prev => ({ ...prev, isCreatingQuickClient: true }))
     
     try {
       // Determinar el tipo según el contexto
@@ -482,7 +522,7 @@ export default function NotasPedidoPage() {
           partner_id: nuevoPartner.id
         })
         
-        setQuickClientName('')
+        setUiState(prev => ({ ...prev, quickClientName: '' }))
         const tipoTexto = formData.type === 'prestamo' ? 
           (formData.prestamo_tipo === 'yo_presto' ? 'cliente' : 'partner') : 'cliente'
         alert(`${tipoTexto.charAt(0).toUpperCase() + tipoTexto.slice(1)} "${nombrePartner}" creado y seleccionado exitosamente`)
@@ -491,9 +531,9 @@ export default function NotasPedidoPage() {
       console.error('Unexpected error:', error)
       alert('Error inesperado al crear el partner')
     } finally {
-      setIsCreatingQuickClient(false)
+      setUiState(prev => ({ ...prev, isCreatingQuickClient: false }))
     }
-  }
+  }, [formData.type, formData.prestamo_tipo, partners])
 
   const getTypeColor = (type: string) => {
     switch (type) {
@@ -578,12 +618,12 @@ export default function NotasPedidoPage() {
     })))
 
     // Validar que se seleccione un partner según el tipo de transacción
-    if (formData.type === 'venta' && !formData.partner_id && !quickClientName.trim()) {
+    if (formData.type === 'venta' && !formData.partner_id && !uiState.quickClientName.trim()) {
       alert('Por favor selecciona un cliente existente o crea uno nuevo para la venta')
       return
     }
 
-    if (formData.type === 'compra' && !formData.partner_id && !quickClientName.trim()) {
+    if (formData.type === 'compra' && !formData.partner_id && !uiState.quickClientName.trim()) {
       alert('Por favor selecciona un proveedor existente o crea uno nuevo para la compra')
       return
     }
@@ -593,7 +633,7 @@ export default function NotasPedidoPage() {
         alert('Por favor selecciona el tipo de préstamo (Yo presto / Me prestan)')
         return
       }
-      if (!formData.partner_id && !quickClientName.trim()) {
+      if (!formData.partner_id && !uiState.quickClientName.trim()) {
         alert(`Por favor selecciona ${formData.prestamo_tipo === 'yo_presto' ? 'a quién prestas' : 'quién te presta'} o crea uno nuevo`)
         return
       }
@@ -604,7 +644,7 @@ export default function NotasPedidoPage() {
         alert('Por favor selecciona el tipo de devolución (Yo devuelvo / Me devuelven)')
         return
       }
-      if (!formData.partner_id && !quickClientName.trim()) {
+      if (!formData.partner_id && !uiState.quickClientName.trim()) {
         alert(`Por favor selecciona ${formData.devolucion_tipo === 'yo_devuelvo' ? 'a quién devuelves' : 'quién te devuelve'} o crea uno nuevo`)
         return
       }
@@ -615,7 +655,7 @@ export default function NotasPedidoPage() {
         alert('Por favor selecciona el tipo de pase (Yo pase / Me pasen)')
         return
       }
-      if (!formData.partner_id && !quickClientName.trim()) {
+      if (!formData.partner_id && !uiState.quickClientName.trim()) {
         alert(`Por favor selecciona ${formData.pase_tipo === 'yo_pase' ? 'a quién pasas' : 'quién te pasa'} o crea uno nuevo`)
         return
       }
@@ -625,8 +665,8 @@ export default function NotasPedidoPage() {
 
     try {
                      // Si es una venta, compra, pase, préstamo o devolución y se está escribiendo un nuevo cliente/partner, crearlo primero
-        if ((formData.type === 'venta' || formData.type === 'compra' || formData.type === 'pase' || formData.type === 'prestamo' || formData.type === 'devolucion') && !formData.partner_id && quickClientName.trim()) {
-          await crearClienteRapido(quickClientName)
+        if ((formData.type === 'venta' || formData.type === 'compra' || formData.type === 'pase' || formData.type === 'prestamo' || formData.type === 'devolucion') && !formData.partner_id && uiState.quickClientName.trim()) {
+          await crearClienteRapido(uiState.quickClientName)
           // La función crearClienteRapido ya actualiza formData.partner_id
           // Continuar con la creación de la nota de pedido
         }
@@ -705,7 +745,7 @@ export default function NotasPedidoPage() {
                   // Actualizar lista local
           setNotasPedido(notasPedido.map(n => 
             n.id === editingNota.id 
-              ? { ...n, ...formData, total: calcularTotal(), numero_pedido: parseInt(formData.numero_pedido?.trim() || '0') || 0 }
+              ? { ...n, ...formData, total: calcularTotal, numero_pedido: parseInt(formData.numero_pedido?.trim() || '0') || 0 }
               : n
           ))
         } else {
@@ -769,7 +809,7 @@ export default function NotasPedidoPage() {
             const nuevaNota = {
               ...notaData[0],
               items: formData.items,
-              total: calcularTotal(),
+              total: calcularTotal,
               estado: 'registrada', // Estado por defecto
               numero_pedido: formData.numero_pedido.trim() // Usar el número de pedido manual del usuario
             }
@@ -805,18 +845,18 @@ export default function NotasPedidoPage() {
     setShowForm(true)
   }
 
-  const openDeleteDialog = (id: string) => {
-    setNotaToDelete(id)
-    setConfirmOpen(true)
-  }
+  const openDeleteDialog = useCallback((id: string) => {
+    setUiState(prev => ({ ...prev, notaToDelete: id, confirmOpen: true }))
+  }, [])
 
-  const confirmDelete = async () => {
-    if (!notaToDelete) return
+  const confirmDelete = useCallback(async () => {
+    if (!uiState.notaToDelete) return
+    
     try {
-      setDeleting(true)
+      setUiState(prev => ({ ...prev, deleting: true }))
       
       // IMPORTANTE: Revertir el ajuste de stock ANTES de eliminar
-      const notaAEliminar = notasPedido.find(n => n.id === notaToDelete)
+      const notaAEliminar = notasPedido.find(n => n.id === uiState.notaToDelete)
       if (notaAEliminar) {
         // Obtener el signo del ajuste de stock que se hizo al crear la nota
         const sign = getStockDeltaSign(
@@ -844,28 +884,75 @@ export default function NotasPedidoPage() {
       }
       
       // Ahora sí eliminar items y orden
-      await supabase.from('order_items').delete().eq('order_id', notaToDelete)
-      const { error } = await supabase.from('orders').delete().eq('id', notaToDelete)
-      if (error) throw error
+      console.log('🗑️ Eliminando items de la orden...')
+      const { error: itemsError } = await supabase
+        .from('order_items')
+        .delete()
+        .eq('order_id', uiState.notaToDelete)
       
-      setNotasPedido(prev => prev.filter(n => n.id !== notaToDelete))
-      fetchNotasPedido()
+      if (itemsError) {
+        console.error('Error eliminando items:', itemsError)
+        throw new Error(`Error al eliminar items: ${itemsError.message}`)
+      }
+      
+      console.log('🗑️ Eliminando orden...')
+      const { error: orderError } = await supabase
+        .from('orders')
+        .delete()
+        .eq('id', uiState.notaToDelete)
+      
+      if (orderError) {
+        console.error('Error eliminando orden:', orderError)
+        throw new Error(`Error al eliminar orden: ${orderError.message}`)
+      }
+      
+      console.log('✅ Orden eliminada exitosamente')
+      
+      // Actualizar estado local inmediatamente
+      setNotasPedido(prev => prev.filter(n => n.id !== uiState.notaToDelete))
+      
+      // Recargar datos de manera más segura
+      try {
+        await fetchNotasPedido()
+      } catch (fetchError) {
+        console.error('Error al recargar datos:', fetchError)
+        // No mostrar error al usuario si solo falla la recarga
+        // Los datos ya se actualizaron localmente
+      }
       
       toast.show('Nota de pedido eliminada y stock restaurado correctamente', 'success', 'Éxito')
+      
     } catch (error: any) {
-      console.error('Unexpected error:', error)
-      toast.show('Error inesperado al eliminar la nota de pedido', 'error', 'Error')
+      console.error('Error durante la eliminación:', error)
+      const errorMessage = error.message || 'Error inesperado al eliminar la nota de pedido'
+      
+      // Guardar el error en el estado para mostrarlo en el diálogo
+      setUiState(prev => ({ 
+        ...prev, 
+        deleteError: errorMessage 
+      }))
+      
+      toast.show(errorMessage, 'error', 'Error')
     } finally {
-      setDeleting(false)
-      setConfirmOpen(false)
-      setNotaToDelete(null)
+      // Siempre limpiar el estado
+      setUiState(prev => ({ 
+        ...prev, 
+        deleting: false, 
+        confirmOpen: false, 
+        notaToDelete: null,
+        deleteError: null
+      }))
     }
-  }
+  }, [uiState.notaToDelete, notasPedido, toast, fetchNotasPedido])
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 className="animate-spin" size={48} />
+        <div className="text-center">
+          <Loader2 className="animate-spin mx-auto mb-4" size={48} />
+          <p className="text-gray-600 text-lg">Cargando notas de pedido...</p>
+          <p className="text-gray-400 text-sm mt-2">Por favor espera un momento</p>
+        </div>
       </div>
     )
   }
@@ -874,12 +961,17 @@ export default function NotasPedidoPage() {
     return (
       <div className="text-center py-6">
         <div className="text-red-500 mb-4">{error}</div>
-        <button 
-          onClick={fetchNotasPedido}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-        >
-          Reintentar
-        </button>
+        <div className="space-y-4">
+          <button 
+            onClick={fetchNotasPedido}
+            className="px-6 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-all duration-200 font-medium"
+          >
+            🔄 Reintentar Carga
+          </button>
+          <div className="text-sm text-gray-500">
+            Si el problema persiste, verifica tu conexión a internet
+          </div>
+        </div>
       </div>
     )
   }
@@ -1069,7 +1161,7 @@ export default function NotasPedidoPage() {
                             value={formData.partner_id}
                             onChange={(e) => {
                               setFormData({...formData, partner_id: e.target.value})
-                              setQuickClientName('')
+                              setUiState(prev => ({ ...prev, quickClientName: '' }))
                             }}
                             className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
                           >
@@ -1087,9 +1179,9 @@ export default function NotasPedidoPage() {
                         <div className="flex gap-3">
                           <input
                             type="text"
-                            value={quickClientName}
+                            value={uiState.quickClientName}
                             onChange={(e) => {
-                              setQuickClientName(e.target.value)
+                              setUiState(prev => ({ ...prev, quickClientName: e.target.value }))
                               setFormData({...formData, partner_id: ''})
                             }}
                             placeholder={`O escribir nombre de ${formData.prestamo_tipo === 'yo_presto' ? 'cliente' : 'partner'} nuevo`}
@@ -1097,11 +1189,11 @@ export default function NotasPedidoPage() {
                           />
                           <button
                             type="button"
-                            onClick={() => crearClienteRapido(quickClientName)}
-                            disabled={!quickClientName.trim() || isCreatingQuickClient}
+                            onClick={() => crearClienteRapido(uiState.quickClientName)}
+                            disabled={!uiState.quickClientName.trim() || uiState.isCreatingQuickClient}
                             className="px-4 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                           >
-                            {isCreatingQuickClient ? (
+                            {uiState.isCreatingQuickClient ? (
                               <Loader2 size={16} className="animate-spin" />
                             ) : (
                               'Crear'
@@ -1144,7 +1236,7 @@ export default function NotasPedidoPage() {
                             value={formData.partner_id}
                             onChange={(e) => {
                               setFormData({...formData, partner_id: e.target.value})
-                              setQuickClientName('')
+                              setUiState(prev => ({ ...prev, quickClientName: '' }))
                             }}
                             className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
                           >
@@ -1162,9 +1254,9 @@ export default function NotasPedidoPage() {
                         <div className="flex gap-3">
                           <input
                             type="text"
-                            value={quickClientName}
+                            value={uiState.quickClientName}
                             onChange={(e) => {
-                              setQuickClientName(e.target.value)
+                              setUiState(prev => ({ ...prev, quickClientName: e.target.value }))
                               setFormData({...formData, partner_id: ''})
                             }}
                             placeholder={`O escribir nombre de ${formData.devolucion_tipo === 'yo_devuelvo' ? 'cliente' : 'partner'} nuevo`}
@@ -1172,11 +1264,11 @@ export default function NotasPedidoPage() {
                           />
                           <button
                             type="button"
-                            onClick={() => crearClienteRapido(quickClientName)}
-                            disabled={!quickClientName.trim() || isCreatingQuickClient}
+                            onClick={() => crearClienteRapido(uiState.quickClientName)}
+                            disabled={!uiState.quickClientName.trim() || uiState.isCreatingQuickClient}
                             className="px-4 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                           >
-                            {isCreatingQuickClient ? (
+                            {uiState.isCreatingQuickClient ? (
                               <Loader2 size={16} className="animate-spin" />
                             ) : (
                               'Crear'
@@ -1219,7 +1311,7 @@ export default function NotasPedidoPage() {
                             value={formData.partner_id}
                             onChange={(e) => {
                               setFormData({...formData, partner_id: e.target.value})
-                              setQuickClientName('')
+                              setUiState(prev => ({ ...prev, quickClientName: '' }))
                             }}
                             className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
                           >
@@ -1237,9 +1329,9 @@ export default function NotasPedidoPage() {
                         <div className="flex gap-3">
                           <input
                             type="text"
-                            value={quickClientName}
+                            value={uiState.quickClientName}
                             onChange={(e) => {
-                              setQuickClientName(e.target.value)
+                              setUiState(prev => ({ ...prev, quickClientName: e.target.value }))
                               setFormData({...formData, partner_id: ''})
                             }}
                             placeholder={`O escribir nombre de ${formData.pase_tipo === 'yo_pase' ? 'cliente' : 'partner'} nuevo`}
@@ -1247,11 +1339,11 @@ export default function NotasPedidoPage() {
                           />
                           <button
                             type="button"
-                            onClick={() => crearClienteRapido(quickClientName)}
-                            disabled={!quickClientName.trim() || isCreatingQuickClient}
+                            onClick={() => crearClienteRapido(uiState.quickClientName)}
+                            disabled={!uiState.quickClientName.trim() || uiState.isCreatingQuickClient}
                             className="px-4 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                           >
-                            {isCreatingQuickClient ? (
+                            {uiState.isCreatingQuickClient ? (
                               <Loader2 size={16} className="animate-spin" />
                             ) : (
                               'Crear'
@@ -1272,7 +1364,7 @@ export default function NotasPedidoPage() {
                         value={formData.partner_id}
                         onChange={(e) => {
                           setFormData({...formData, partner_id: e.target.value})
-                          setQuickClientName('')
+                          setUiState(prev => ({ ...prev, quickClientName: '' }))
                         }}
                         className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
                       >
@@ -1290,9 +1382,9 @@ export default function NotasPedidoPage() {
                     <div className="flex gap-3">
                       <input
                         type="text"
-                        value={quickClientName}
+                        value={uiState.quickClientName}
                         onChange={(e) => {
-                          setQuickClientName(e.target.value)
+                          setUiState(prev => ({ ...prev, quickClientName: e.target.value }))
                           setFormData({...formData, partner_id: ''})
                         }}
                         placeholder="O escribir nombre de nuevo cliente"
@@ -1300,11 +1392,11 @@ export default function NotasPedidoPage() {
                       />
                       <button
                         type="button"
-                        onClick={() => crearClienteRapido(quickClientName)}
-                        disabled={!quickClientName.trim() || isCreatingQuickClient}
+                        onClick={() => crearClienteRapido(uiState.quickClientName)}
+                        disabled={!uiState.quickClientName.trim() || uiState.isCreatingQuickClient}
                         className="px-4 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                       >
-                        {isCreatingQuickClient ? (
+                        {uiState.isCreatingQuickClient ? (
                           <Loader2 size={16} className="animate-spin" />
                         ) : (
                           'Crear'
@@ -1646,7 +1738,7 @@ export default function NotasPedidoPage() {
             {formData.type !== 'prestamo' && formData.type !== 'devolucion' && (
               <div className="text-right bg-blue-50 p-4 rounded-xl border border-blue-200">
                 <p className="text-2xl font-bold text-blue-800">
-                  Total: S/. {calcularTotal().toFixed(2)}
+                  Total: S/. {calcularTotal.toFixed(2)}
                 </p>
               </div>
             )}
@@ -1820,8 +1912,7 @@ export default function NotasPedidoPage() {
                          <button 
                            className="p-3 text-gray-600 hover:bg-gray-50 rounded-xl transition-all duration-200 hover:scale-110"
                            onClick={() => {
-                             setSelectedNota(nota)
-                             setShowDetails(true)
+                             setUiState(prev => ({ ...prev, selectedNota: nota, showDetails: true }))
                            }}
                            title="Ver detalles"
                          >
@@ -1844,32 +1935,42 @@ export default function NotasPedidoPage() {
         </div>
       </div>
 
-             {/* Dialogo Confirmación Eliminar */}
-       <ConfirmDialog
-         open={confirmOpen}
-         title="Eliminar nota de pedido"
-         description="Esta acción no se puede deshacer. Se eliminará la nota y todos sus items."
-         confirmText="Eliminar"
-         cancelText="Cancelar"
-         variant="danger"
-         loading={deleting}
-         onConfirm={confirmDelete}
-         onCancel={() => { if (!deleting) { setConfirmOpen(false); setNotaToDelete(null) } }}
-       />
+                     {/* Dialogo Confirmación Eliminar */}
+        <ConfirmDialog
+          open={uiState.confirmOpen}
+          title="Eliminar nota de pedido"
+          description={
+            uiState.deleteError ? 
+            `Error: ${uiState.deleteError}` : 
+            "Esta acción no se puede deshacer. Se eliminará la nota y todos sus items."
+          }
+          confirmText={uiState.deleteError ? "Cerrar" : "Eliminar"}
+          cancelText="Cancelar"
+          variant={uiState.deleteError ? "default" : "danger"}
+          loading={uiState.deleting}
+          onConfirm={uiState.deleteError ? 
+            () => setUiState(prev => ({ ...prev, confirmOpen: false, notaToDelete: null, deleteError: null })) : 
+            confirmDelete
+          }
+          onCancel={() => { 
+            if (!uiState.deleting) { 
+              setUiState(prev => ({ ...prev, confirmOpen: false, notaToDelete: null, deleteError: null })) 
+            } 
+          }}
+        />
 
                {/* Modal de Detalles de la Nota */}
-        {showDetails && selectedNota && (
+        {uiState.showDetails && uiState.selectedNota && (
           <div className="fixed inset-0 bg-black/10 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
               <div className="p-6 border-b border-gray-200">
                 <div className="flex justify-between items-center">
                   <h2 className="text-2xl font-bold text-gray-800">
-                    Detalles de la Nota de Pedido #{selectedNota.numero_pedido || 'N/A'}
+                    Detalles de la Nota de Pedido #{uiState.selectedNota.numero_pedido || 'N/A'}
                   </h2>
                   <button 
                     onClick={() => {
-                      setShowDetails(false)
-                      setSelectedNota(null)
+                      setUiState(prev => ({ ...prev, showDetails: false, selectedNota: null }))
                     }}
                     className="p-2 hover:bg-gray-100 rounded-xl transition-colors duration-200"
                   >
@@ -1886,17 +1987,17 @@ export default function NotasPedidoPage() {
                     <div className="space-y-2">
                       <div className="flex justify-between">
                         <span className="text-gray-600">Tipo:</span>
-                        <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${getTypeColor(selectedNota.type)}`}>
-                          {getTypeIcon(selectedNota.type)}
-                          {getTypeLabel(selectedNota.type, selectedNota.prestamo_tipo, selectedNota.devolucion_tipo, selectedNota.pase_tipo)}
+                        <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${getTypeColor(uiState.selectedNota.type)}`}>
+                          {getTypeIcon(uiState.selectedNota.type)}
+                          {getTypeLabel(uiState.selectedNota.type, uiState.selectedNota.prestamo_tipo, uiState.selectedNota.devolucion_tipo, uiState.selectedNota.pase_tipo)}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Fecha del Pedido:</span>
                         <span className="font-medium">
-                          {selectedNota.fecha_pedido && selectedNota.fecha_pedido.trim() !== '' ? 
-                            formatDateForLima(selectedNota.fecha_pedido) :
-                            formatDateForLima(selectedNota.created_at)
+                          {uiState.selectedNota.fecha_pedido && uiState.selectedNota.fecha_pedido.trim() !== '' ?
+                            formatDateForLima(uiState.selectedNota.fecha_pedido) :
+                            formatDateForLima(uiState.selectedNota.created_at)
                           }
                         </span>
                       </div>
@@ -1905,32 +2006,31 @@ export default function NotasPedidoPage() {
                   
                   <div className="bg-gray-50 p-4 rounded-xl">
                     <h3 className="font-semibold text-gray-700 mb-3">Cliente/Proveedor</h3>
-                    {selectedNota.partner_id ? (
-                      (() => {
-                        const partner = partners.find(p => p.id === selectedNota.partner_id)
-                        return partner ? (
-                          <div className="space-y-2">
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Nombre:</span>
-                              <span className="font-medium">{partner.name}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Tipo:</span>
-                              <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
-                                {partner.type}
-                              </span>
-                            </div>
-                            {partner.contact && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Contacto:</span>
-                                <span className="font-medium">{partner.contact}</span>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-gray-400">Partner no encontrado</span>
-                        )
-                      })()
+                    {uiState.selectedNota.partner ? (
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Nombre:</span>
+                          <span className="font-medium">{uiState.selectedNota.partner.name}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Tipo:</span>
+                          <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
+                            {uiState.selectedNota.partner.type}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Contacto:</span>
+                          <span className="font-medium">{uiState.selectedNota.partner.contact}</span>
+                        </div>
+                      </div>
+                    ) : uiState.selectedNota.partner_id ? (
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">ID del Partner:</span>
+                          <span className="font-medium text-gray-500">{uiState.selectedNota.partner_id}</span>
+                        </div>
+                        <span className="text-gray-400 text-sm">Información del partner no disponible</span>
+                      </div>
                     ) : (
                       <span className="text-gray-400">Sin partner</span>
                     )}
@@ -1939,9 +2039,9 @@ export default function NotasPedidoPage() {
                 
                 {/* Productos */}
                 <div className="bg-gray-50 p-4 rounded-xl">
-                  <h3 className="font-semibold text-gray-700 mb-3">Productos ({selectedNota.items.length})</h3>
+                  <h3 className="font-semibold text-gray-700 mb-3">Productos ({uiState.selectedNota.items.length})</h3>
                   <div className="space-y-3">
-                    {selectedNota.items.map((item, index) => (
+                    {uiState.selectedNota.items.map((item, index) => (
                       <div key={index} className="bg-white p-3 rounded-lg border border-gray-200">
                         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                           <div>
@@ -1964,19 +2064,19 @@ export default function NotasPedidoPage() {
                           <div>
                             <span className="text-sm text-gray-600">Precio Unitario:</span>
                             <div className="font-medium">
-                              {selectedNota.type === 'prestamo' || selectedNota.type === 'devolucion' ? 
-                                'N/A' : 
-                                `S/. ${item.unit_price?.toFixed(2) || '0.00'}`
-                              }
+                                                             {uiState.selectedNota?.type === 'prestamo' || uiState.selectedNota?.type === 'devolucion' ? 
+                                 'N/A' : 
+                                 `S/. ${item.unit_price?.toFixed(2) || '0.00'}`
+                               }
                             </div>
                           </div>
                           <div>
                             <span className="text-sm text-gray-600">Total:</span>
                             <div className="font-medium">
-                              {selectedNota.type === 'prestamo' || selectedNota.type === 'devolucion' ? 
-                                'N/A' : 
-                                `S/. ${item.total_price?.toFixed(2) || '0.00'}`
-                              }
+                                                             {uiState.selectedNota?.type === 'prestamo' || uiState.selectedNota?.type === 'devolucion' ? 
+                                 'N/A' : 
+                                 `S/. ${item.total_price?.toFixed(2) || '0.00'}`
+                               }
                             </div>
                           </div>
                         </div>
@@ -1986,12 +2086,12 @@ export default function NotasPedidoPage() {
                 </div>
                 
                 {/* Total */}
-                {selectedNota.type !== 'prestamo' && selectedNota.type !== 'devolucion' && (
+                {uiState.selectedNota.type !== 'prestamo' && uiState.selectedNota.type !== 'devolucion' && (
                   <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
                     <div className="text-center">
                       <span className="text-sm text-blue-600 font-medium">Total de la Transacción</span>
                       <div className="text-3xl font-bold text-blue-800 mt-2">
-                        S/. {selectedNota.total.toFixed(2)}
+                        S/. {uiState.selectedNota.total.toFixed(2)}
                       </div>
                     </div>
                   </div>
@@ -2002,19 +2102,19 @@ export default function NotasPedidoPage() {
                <div className="flex justify-end gap-3">
                  <button
                    onClick={() => {
-                     setShowDetails(false)
-                     setSelectedNota(null)
+                     setUiState(prev => ({ ...prev, showDetails: false, selectedNota: null }))
                    }}
                    className="px-6 py-2 bg-gray-500 text-white rounded-xl hover:bg-gray-600 transition-colors duration-200 font-medium"
                  >
                    Cerrar
                  </button>
                  <button
-                   onClick={() => {
-                     setShowDetails(false)
-                     setSelectedNota(null)
-                     handleEdit(selectedNota)
-                   }}
+                                               onClick={() => {
+                              if (uiState.selectedNota) {
+                                setUiState(prev => ({ ...prev, showDetails: false, selectedNota: null }))
+                                handleEdit(uiState.selectedNota)
+                              }
+                            }}
                    className="px-6 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors duration-200 font-medium"
                  >
                    Editar Nota

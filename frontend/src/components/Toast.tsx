@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, memo, useCallback } from 'react'
 import { CheckCircle, AlertCircle, Info, AlertTriangle, X } from 'lucide-react'
 
 type ToastKind = 'success' | 'error' | 'info' | 'warning'
@@ -19,13 +19,13 @@ export function useToast() {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
 
-  const show = (message: string, kind: ToastKind = 'info', title?: string, durationMs = 4000) => {
+  const show = useCallback((message: string, kind: ToastKind = 'info', title?: string, durationMs = 4000) => {
     const id = Date.now()
     setToasts(prev => [...prev, { id, message, kind, title, duration: durationMs }])
     setTimeout(() => dismiss(id), durationMs)
-  }
+  }, [])
 
-  const dismiss = (id: number) => setToasts(prev => prev.filter(t => t.id !== id))
+  const dismiss = useCallback((id: number) => setToasts(prev => prev.filter(t => t.id !== id)), [])
 
   const value = useMemo(() => ({ show }), [])
 
@@ -41,8 +41,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   )
 }
 
-// Componente individual de Toast
-function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
+// Componente individual de Toast optimizado
+const ToastItem = memo(function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
   const [isVisible, setIsVisible] = useState(true)
 
   useEffect(() => {
@@ -107,7 +107,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
       </div>
     </div>
   )
-}
+})
 
 // Componente Toast simple para uso directo (opcional)
 export default function Toast({ 

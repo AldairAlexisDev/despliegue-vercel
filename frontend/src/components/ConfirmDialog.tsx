@@ -1,4 +1,4 @@
-import { PropsWithChildren } from 'react'
+import { PropsWithChildren, memo } from 'react'
 import { X, Loader2 } from 'lucide-react'
 
 type ConfirmDialogProps = {
@@ -13,7 +13,7 @@ type ConfirmDialogProps = {
   onCancel: () => void
 }
 
-export default function ConfirmDialog({
+const ConfirmDialog = memo(function ConfirmDialog({
   open,
   title,
   description,
@@ -69,7 +69,9 @@ export default function ConfirmDialog({
       </div>
     </div>
   )
-}
+})
+
+export default ConfirmDialog
 
 // Simple keyframes for fade-in, Tailwind can be extended but we keep inline for simplicity
 declare global {
