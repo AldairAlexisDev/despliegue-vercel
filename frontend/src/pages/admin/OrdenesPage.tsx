@@ -1,9 +1,10 @@
 // src/pages/admin/NotasPedidoPage.tsx
-import { useEffect, useState, useMemo, useCallback, memo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '../../supabase'
 import { Loader2, Plus, Search, Edit, Trash2, X, Save, Wallet, ShoppingCart, Package, AlertCircle, ArrowUpDown, FileText, Eye } from 'lucide-react'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { useToast } from '../../components/Toast'
+import ClientSearchInput from '../../components/ClientSearchInput'
 
 type NotaPedido = {
   id: string
@@ -90,7 +91,9 @@ export default function NotasPedidoPage() {
     selectedNota: null as NotaPedido | null,
     // Cliente rápido
     quickClientName: '',
-    isCreatingQuickClient: false
+    isCreatingQuickClient: false,
+    // Estado de envío del formulario
+    isSubmitting: false
   })
   
   
@@ -382,13 +385,27 @@ export default function NotasPedidoPage() {
     return notasPedido.filter(nota => {
       const matchesSearch = 
         (nota.numero_pedido && nota.numero_pedido.toString().includes(searchTerm)) ||
-        nota.items.some(item => item.product_name.toLowerCase().includes(searchTerm.toLowerCase()))
+        nota.items.some(item => {
+          const productName = item.product_name.toLowerCase()
+          const searchLower = searchTerm.toLowerCase()
+          
+          // Buscar por nombre de producto
+          if (productName.includes(searchLower)) return true
+          
+          // Buscar por modelo de producto
+          const producto = productos.find(p => p.id === item.product_id)
+          if (producto && producto.model && producto.model.toLowerCase().includes(searchLower)) {
+            return true
+          }
+          
+          return false
+        })
       
       const matchesType = filterType === 'todos' || nota.type === filterType
       
       return matchesSearch && matchesType
     })
-  }, [notasPedido, searchTerm, filterType])
+  }, [notasPedido, searchTerm, filterType, productos])
 
   // Optimización: useCallback para funciones que se pasan como props
   const resetForm = useCallback(() => {
@@ -405,7 +422,11 @@ export default function NotasPedidoPage() {
     setEditingNota(null)
     setShowForm(false)
     setError('') // Limpiar errores también
-    setUiState(prev => ({ ...prev, quickClientName: '' }))
+    setUiState(prev => ({ 
+      ...prev, 
+      quickClientName: '',
+      isSubmitting: false // Limpiar estado de envío
+    }))
   }, [])
 
   const agregarItem = () => {
@@ -514,13 +535,13 @@ export default function NotasPedidoPage() {
         const nuevoPartner = data[0]
         
         // Actualizar la lista de partners
-        setPartners([...partners, nuevoPartner])
+        setPartners(prev => [...prev, nuevoPartner])
         
         // Seleccionar automáticamente el nuevo partner
-        setFormData({
-          ...formData,
+        setFormData(prev => ({
+          ...prev,
           partner_id: nuevoPartner.id
-        })
+        }))
         
         setUiState(prev => ({ ...prev, quickClientName: '' }))
         const tipoTexto = formData.type === 'prestamo' ? 
@@ -533,7 +554,7 @@ export default function NotasPedidoPage() {
     } finally {
       setUiState(prev => ({ ...prev, isCreatingQuickClient: false }))
     }
-  }, [formData.type, formData.prestamo_tipo, partners])
+  }, [formData.type, formData.prestamo_tipo, formData.devolucion_tipo, formData.pase_tipo])
 
   const getTypeColor = (type: string) => {
     switch (type) {
@@ -571,105 +592,112 @@ export default function NotasPedidoPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-         if (formData.items.length === 0) {
-       alert('Por favor agrega al menos un producto')
-       return
-     }
-
-     // Validar que se haya ingresado un número de pedido
-     if (!formData.numero_pedido || formData.numero_pedido.trim() === '') {
-       alert('Por favor ingresa un número de pedido')
-       return
-     }
-
-    // Validación diferente para préstamos y devoluciones (sin precio) vs otros tipos (con precio)
-    if (formData.type === 'prestamo' || formData.type === 'devolucion') {
-      if (formData.items.some(item => !item.product_id || item.quantity <= 0)) {
-        alert('Por favor completa todos los productos correctamente (producto y cantidad)')
-        return
-      }
-    } else { // Venta, Compra, Pase
-      if (formData.items.some(item => !item.product_id || item.quantity <= 0 || item.unit_price <= 0)) {
-        alert('Por favor completa todos los productos correctamente (producto, cantidad y precio unitario)')
-        return
-      }
-    }
-    
-    // Verificar que todos los productos tengan un ID válido (seleccionados del buscador)
-    if (formData.items.some(item => !item.product_id)) {
-      alert('Por favor selecciona todos los productos de la lista de sugerencias. Asegúrate de hacer clic en una sugerencia para seleccionarla.')
+    // Protección contra múltiples envíos
+    if (uiState.isSubmitting) {
+      console.log('⚠️ Formulario ya se está enviando, ignorando clic adicional')
       return
     }
     
-    // Verificar que los IDs de productos sean válidos
-    for (const item of formData.items) {
-      const producto = productos.find(p => p.id === item.product_id)
-      if (!producto) {
-        alert(`El producto "${item.product_name}" no se encontró en la base de datos. Por favor selecciónalo nuevamente.`)
-        return
-      }
-    }
+    // Activar estado de envío
+    setUiState(prev => ({ ...prev, isSubmitting: true }))
     
-    // Debug: mostrar información de validación
-    console.log('🔍 Validación de productos:', formData.items.map(item => ({
-      product_name: item.product_name,
-      product_id: item.product_id,
-      valid: !!item.product_id
-    })))
-
-    // Validar que se seleccione un partner según el tipo de transacción
-    if (formData.type === 'venta' && !formData.partner_id && !uiState.quickClientName.trim()) {
-      alert('Por favor selecciona un cliente existente o crea uno nuevo para la venta')
-      return
-    }
-
-    if (formData.type === 'compra' && !formData.partner_id && !uiState.quickClientName.trim()) {
-      alert('Por favor selecciona un proveedor existente o crea uno nuevo para la compra')
-      return
-    }
-
-    if (formData.type === 'prestamo') {
-      if (!formData.prestamo_tipo) {
-        alert('Por favor selecciona el tipo de préstamo (Yo presto / Me prestan)')
-        return
-      }
-      if (!formData.partner_id && !uiState.quickClientName.trim()) {
-        alert(`Por favor selecciona ${formData.prestamo_tipo === 'yo_presto' ? 'a quién prestas' : 'quién te presta'} o crea uno nuevo`)
-        return
-      }
-    }
-
-    if (formData.type === 'devolucion') {
-      if (!formData.devolucion_tipo) {
-        alert('Por favor selecciona el tipo de devolución (Yo devuelvo / Me devuelven)')
-        return
-      }
-      if (!formData.partner_id && !uiState.quickClientName.trim()) {
-        alert(`Por favor selecciona ${formData.devolucion_tipo === 'yo_devuelvo' ? 'a quién devuelves' : 'quién te devuelve'} o crea uno nuevo`)
-        return
-      }
-    }
-
-    if (formData.type === 'pase') {
-      if (!formData.pase_tipo) {
-        alert('Por favor selecciona el tipo de pase (Yo pase / Me pasen)')
-        return
-      }
-      if (!formData.partner_id && !uiState.quickClientName.trim()) {
-        alert(`Por favor selecciona ${formData.pase_tipo === 'yo_pase' ? 'a quién pasas' : 'quién te pasa'} o crea uno nuevo`)
-        return
-      }
-    }
-
-
-
     try {
-                     // Si es una venta, compra, pase, préstamo o devolución y se está escribiendo un nuevo cliente/partner, crearlo primero
-        if ((formData.type === 'venta' || formData.type === 'compra' || formData.type === 'pase' || formData.type === 'prestamo' || formData.type === 'devolucion') && !formData.partner_id && uiState.quickClientName.trim()) {
-          await crearClienteRapido(uiState.quickClientName)
-          // La función crearClienteRapido ya actualiza formData.partner_id
-          // Continuar con la creación de la nota de pedido
+      if (formData.items.length === 0) {
+        alert('Por favor agrega al menos un producto')
+        return
+      }
+
+      // Validar que se haya ingresado un número de pedido
+      if (!formData.numero_pedido || formData.numero_pedido.trim() === '') {
+        alert('Por favor ingresa un número de pedido')
+        return
+      }
+
+      // Validación diferente para préstamos y devoluciones (sin precio) vs otros tipos (con precio)
+      if (formData.type === 'prestamo' || formData.type === 'devolucion') {
+        if (formData.items.some(item => !item.product_id || item.quantity <= 0)) {
+          alert('Por favor completa todos los productos correctamente (producto y cantidad)')
+          return
         }
+      } else { // Venta, Compra, Pase
+        if (formData.items.some(item => !item.product_id || item.quantity <= 0 || item.unit_price <= 0)) {
+          alert('Por favor completa todos los productos correctamente (producto, cantidad y precio unitario)')
+          return
+        }
+      }
+      
+      // Verificar que todos los productos tengan un ID válido (seleccionados del buscador)
+      if (formData.items.some(item => !item.product_id)) {
+        alert('Por favor selecciona todos los productos de la lista de sugerencias. Asegúrate de hacer clic en una sugerencia para seleccionarla.')
+        return
+      }
+      
+      // Verificar que los IDs de productos sean válidos
+      for (const item of formData.items) {
+        const producto = productos.find(p => p.id === item.product_id)
+        if (!producto) {
+          alert(`El producto "${item.product_name}" no se encontró en la base de datos. Por favor selecciónalo nuevamente.`)
+          return
+        }
+      }
+      
+      // Debug: mostrar información de validación
+      console.log('🔍 Validación de productos:', formData.items.map(item => ({
+        product_name: item.product_name,
+        product_id: item.product_id,
+        valid: !!item.product_id
+      })))
+
+      // Validar que se seleccione un partner según el tipo de transacción
+      if (formData.type === 'venta' && !formData.partner_id && !uiState.quickClientName.trim()) {
+        alert('Por favor selecciona un cliente existente o crea uno nuevo para la venta')
+        return
+      }
+
+      if (formData.type === 'compra' && !formData.partner_id && !uiState.quickClientName.trim()) {
+        alert('Por favor selecciona un proveedor existente o crea uno nuevo para la compra')
+        return
+      }
+
+      if (formData.type === 'prestamo') {
+        if (!formData.prestamo_tipo) {
+          alert('Por favor selecciona el tipo de préstamo (Yo presto / Me prestan)')
+          return
+        }
+        if (!formData.partner_id && !uiState.quickClientName.trim()) {
+          alert(`Por favor selecciona ${formData.prestamo_tipo === 'yo_presto' ? 'a quién prestas' : 'quién te presta'} o crea uno nuevo`)
+          return
+        }
+      }
+
+      if (formData.type === 'devolucion') {
+        if (!formData.devolucion_tipo) {
+          alert('Por favor selecciona el tipo de devolución (Yo devuelvo / Me devuelven)')
+          return
+        }
+        if (!formData.partner_id && !uiState.quickClientName.trim()) {
+          alert(`Por favor selecciona ${formData.devolucion_tipo === 'yo_devuelvo' ? 'a quién devuelves' : 'quién te devuelve'} o crea uno nuevo`)
+          return
+        }
+      }
+
+      if (formData.type === 'pase') {
+        if (!formData.pase_tipo) {
+          alert('Por favor selecciona el tipo de pase (Yo pase / Me pasen)')
+          return
+        }
+        if (!formData.partner_id && !uiState.quickClientName.trim()) {
+          alert(`Por favor selecciona ${formData.pase_tipo === 'yo_pase' ? 'a quién pasas' : 'quién te pasa'} o crea uno nuevo`)
+          return
+        }
+      }
+
+            // Si es una venta, compra, pase, préstamo o devolución y se está escribiendo un nuevo cliente/partner, crearlo primero
+      if ((formData.type === 'venta' || formData.type === 'compra' || formData.type === 'pase' || formData.type === 'prestamo' || formData.type === 'devolucion') && !formData.partner_id && uiState.quickClientName.trim()) {
+        await crearClienteRapido(uiState.quickClientName)
+        // La función crearClienteRapido ya actualiza formData.partner_id
+        // Continuar con la creación de la nota de pedido
+      }
 
       if (editingNota) {
         // Actualizar nota de pedido existente
@@ -688,25 +716,24 @@ export default function NotasPedidoPage() {
           await applyStockAdjustment(prevItems as any, (prevSign === 1 ? -1 : 1) as 1 | -1)
         }
 
-                 const { error } = await supabase
-            .from('orders')
-                        .update({
-               type: formData.type,
-               partner_id: formData.partner_id || null,
-               prestamo_tipo: formData.type === 'prestamo' ? formData.prestamo_tipo : null,
-               devolucion_tipo: formData.type === 'devolucion' ? formData.devolucion_tipo : null,
-               pase_tipo: formData.type === 'pase' ? formData.pase_tipo : null,
-               fecha_pedido: formData.fecha_pedido ? 
-                 new Date(formData.fecha_pedido + 'T00:00:00-05:00').toISOString() : // Fecha en zona horaria de Lima (UTC-5)
-                 null,
-               numero_pedido: formData.numero_pedido.trim() // Actualizar número de pedido manual
-             })
-            .eq('id', editingNota.id)
+        const { error } = await supabase
+          .from('orders')
+          .update({
+            type: formData.type,
+            partner_id: formData.partner_id || null,
+            prestamo_tipo: formData.type === 'prestamo' ? formData.prestamo_tipo : null,
+            devolucion_tipo: formData.type === 'devolucion' ? formData.devolucion_tipo : null,
+            pase_tipo: formData.type === 'pase' ? formData.pase_tipo : null,
+            fecha_pedido: formData.fecha_pedido ? 
+              new Date(formData.fecha_pedido + 'T00:00:00-05:00').toISOString() : // Fecha en zona horaria de Lima (UTC-5)
+              null,
+            numero_pedido: formData.numero_pedido.trim() // Actualizar número de pedido manual
+          })
+          .eq('id', editingNota.id)
 
         if (error) {
           console.error('Error updating nota de pedido:', error)
-          alert(`Error al actualizar: ${error.message}`)
-          return
+          throw new Error(`Error al actualizar: ${error.message}`)
         }
 
         // 2) Actualizar items de la nota de pedido
@@ -716,17 +743,17 @@ export default function NotasPedidoPage() {
           .delete()
           .eq('order_id', editingNota.id)
 
-                 // Luego insertar los nuevos items
-         for (const item of formData.items) {
-           await supabase
-             .from('order_items')
-             .insert({
-               order_id: editingNota.id,
-               product_id: item.product_id,
-               quantity: item.quantity,
-               unit_price: item.unit_price
-             })
-         }
+        // Luego insertar los nuevos items
+        for (const item of formData.items) {
+          await supabase
+            .from('order_items')
+            .insert({
+              order_id: editingNota.id,
+              product_id: item.product_id,
+              quantity: item.quantity,
+              unit_price: item.unit_price
+            })
+        }
 
         // 3) Aplicar ajuste de stock para los nuevos items
         const newSign = getStockDeltaSign(
@@ -742,52 +769,50 @@ export default function NotasPedidoPage() {
           )
         }
 
-                  // Actualizar lista local
-          setNotasPedido(notasPedido.map(n => 
-            n.id === editingNota.id 
-              ? { ...n, ...formData, total: calcularTotal, numero_pedido: parseInt(formData.numero_pedido?.trim() || '0') || 0 }
-              : n
-          ))
-        } else {
-                  // Crear nueva nota de pedido
-                                     const { data: notaData, error } = await supabase
-             .from('orders')
-                         .insert([{
-                type: formData.type,
-                created_by: (await supabase.auth.getUser()).data.user?.id || null,
-                partner_id: formData.partner_id || null,
-                prestamo_tipo: formData.type === 'prestamo' ? formData.prestamo_tipo : null,
-                devolucion_tipo: formData.type === 'devolucion' ? formData.devolucion_tipo : null,
-                pase_tipo: formData.type === 'pase' ? formData.pase_tipo : null,
-                fecha_pedido: formData.fecha_pedido ? 
-                  new Date(formData.fecha_pedido + 'T00:00:00-05:00').toISOString() : // Fecha en zona horaria de Lima (UTC-5)
-                  new Date().toISOString(),
-                numero_pedido: formData.numero_pedido.trim() // Número de pedido manual del usuario
-              }])
-             .select()
+        // Actualizar lista local
+        setNotasPedido(notasPedido.map(n => 
+          n.id === editingNota.id 
+            ? { ...n, ...formData, total: calcularTotal, numero_pedido: parseInt(formData.numero_pedido?.trim() || '0') || 0 }
+            : n
+        ))
+      } else {
+        // Crear nueva nota de pedido
+        const { data: notaData, error } = await supabase
+          .from('orders')
+          .insert([{
+            type: formData.type,
+            created_by: (await supabase.auth.getUser()).data.user?.id || null,
+            partner_id: formData.partner_id || null,
+            prestamo_tipo: formData.type === 'prestamo' ? formData.prestamo_tipo : null,
+            devolucion_tipo: formData.type === 'devolucion' ? formData.devolucion_tipo : null,
+            pase_tipo: formData.type === 'pase' ? formData.pase_tipo : null,
+            fecha_pedido: formData.fecha_pedido ? 
+              new Date(formData.fecha_pedido + 'T00:00:00-05:00').toISOString() : // Fecha en zona horaria de Lima (UTC-5)
+              new Date().toISOString(),
+            numero_pedido: formData.numero_pedido.trim() // Número de pedido manual del usuario
+          }])
+          .select()
 
         if (error) {
           console.error('Error creating nota de pedido:', error)
-          alert(`Error al crear: ${error.message}`)
-          return
+          throw new Error(`Error al crear: ${error.message}`)
         }
 
         if (notaData && notaData.length > 0) {
-                     // Insertar items de la nota de pedido
-           for (const item of formData.items) {
-             const { error: itemError } = await supabase
-               .from('order_items')
-               .insert({
-                 order_id: notaData[0].id,
-                 product_id: item.product_id,
-                 quantity: item.quantity,
-                 unit_price: item.unit_price
-               })
+          // Insertar items de la nota de pedido
+          for (const item of formData.items) {
+            const { error: itemError } = await supabase
+              .from('order_items')
+              .insert({
+                order_id: notaData[0].id,
+                product_id: item.product_id,
+                quantity: item.quantity,
+                unit_price: item.unit_price
+              })
 
             if (itemError) {
               console.error('Error inserting order item:', itemError)
-              alert(`Error al crear item: ${itemError.message}`)
-              return
+              throw new Error(`Error al crear item: ${itemError.message}`)
             }
           }
 
@@ -805,16 +830,16 @@ export default function NotasPedidoPage() {
             )
           }
 
-                                           // Crear la nueva nota con los items
-            const nuevaNota = {
-              ...notaData[0],
-              items: formData.items,
-              total: calcularTotal,
-              estado: 'registrada', // Estado por defecto
-              numero_pedido: formData.numero_pedido.trim() // Usar el número de pedido manual del usuario
-            }
-           
-           setNotasPedido([nuevaNota, ...notasPedido])
+          // Crear la nueva nota con los items
+          const nuevaNota = {
+            ...notaData[0],
+            items: formData.items,
+            total: calcularTotal,
+            estado: 'registrada', // Estado por defecto
+            numero_pedido: formData.numero_pedido.trim() // Usar el número de pedido manual del usuario
+          }
+         
+          setNotasPedido([nuevaNota, ...notasPedido])
         }
       }
 
@@ -824,10 +849,13 @@ export default function NotasPedidoPage() {
     } catch (error) {
       console.error('Unexpected error:', error)
       toast.show('Error inesperado al guardar la nota de pedido', 'error', 'Error')
+    } finally {
+      // Siempre desactivar el estado de envío
+      setUiState(prev => ({ ...prev, isSubmitting: false }))
     }
   }
 
-  const handleEdit = (nota: NotaPedido) => {
+  const handleEdit = (nota: NotaPedido) => {          
     setEditingNota(nota)
     setFormData({
       type: nota.type,
@@ -943,7 +971,7 @@ export default function NotasPedidoPage() {
         deleteError: null
       }))
     }
-  }, [uiState.notaToDelete, notasPedido, toast, fetchNotasPedido])
+  }, [uiState.notaToDelete, notasPedido, toast])
 
   if (loading) {
     return (
@@ -1152,59 +1180,16 @@ export default function NotasPedidoPage() {
                     </select>
                     
                     {formData.prestamo_tipo && (
-                      <div className="space-y-3">
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                          {formData.prestamo_tipo === 'yo_presto' ? 'A quién presto' : 'Quién me presta'}
-                        </label>
-                        <div className="flex gap-3">
-                          <select
-                            value={formData.partner_id}
-                            onChange={(e) => {
-                              setFormData({...formData, partner_id: e.target.value})
-                              setUiState(prev => ({ ...prev, quickClientName: '' }))
-                            }}
-                            className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                          >
-                            <option value="">Seleccionar {formData.prestamo_tipo === 'yo_presto' ? 'cliente' : 'partner'} existente</option>
-                            {partners
-                              .filter(partner => partner.type !== 'proveedor')
-                              .map((partner) => (
-                                <option key={partner.id} value={partner.id}>
-                                  {partner.name} ({partner.type})
-                                </option>
-                              ))}
-                          </select>
-                        </div>
-                        
-                        <div className="flex gap-3">
-                          <input
-                            type="text"
-                            value={uiState.quickClientName}
-                            onChange={(e) => {
-                              setUiState(prev => ({ ...prev, quickClientName: e.target.value }))
-                              setFormData({...formData, partner_id: ''})
-                            }}
-                            placeholder={`O escribir nombre de ${formData.prestamo_tipo === 'yo_presto' ? 'cliente' : 'partner'} nuevo`}
-                            className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => crearClienteRapido(uiState.quickClientName)}
-                            disabled={!uiState.quickClientName.trim() || uiState.isCreatingQuickClient}
-                            className="px-4 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                          >
-                            {uiState.isCreatingQuickClient ? (
-                              <Loader2 size={16} className="animate-spin" />
-                            ) : (
-                              'Crear'
-                            )}
-                          </button>
-                        </div>
-                        
-                        <p className="text-xs text-gray-500 bg-gray-50 p-3 rounded-lg">
-                          💡 Puedes seleccionar un {formData.prestamo_tipo === 'yo_presto' ? 'cliente' : 'partner'} existente o escribir para crear uno nuevo
-                        </p>
-                      </div>
+                  <ClientSearchInput
+                    partners={partners}
+                    selectedPartnerId={formData.partner_id}
+                    onPartnerSelect={(partnerId) => {
+                      setFormData({...formData, partner_id: partnerId})
+                    }}
+                    placeholder={`Buscar ${formData.prestamo_tipo === 'yo_presto' ? 'cliente' : 'partner'}...`}
+                    label={formData.prestamo_tipo === 'yo_presto' ? 'A quién presto' : 'Quién me presta'}
+                    filterType="all"
+                  />
                     )}
                   </div>
                 ) : formData.type === 'devolucion' ? (
@@ -1227,59 +1212,16 @@ export default function NotasPedidoPage() {
                     </select>
                     
                     {formData.devolucion_tipo && (
-                      <div className="space-y-3">
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                          {formData.devolucion_tipo === 'yo_devuelvo' ? 'A quién devuelvo' : 'Quién me devuelve'}
-                        </label>
-                        <div className="flex gap-3">
-                          <select
-                            value={formData.partner_id}
-                            onChange={(e) => {
-                              setFormData({...formData, partner_id: e.target.value})
-                              setUiState(prev => ({ ...prev, quickClientName: '' }))
-                            }}
-                            className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                          >
-                            <option value="">Seleccionar {formData.devolucion_tipo === 'yo_devuelvo' ? 'cliente' : 'partner'} existente</option>
-                            {partners
-                              .filter(partner => partner.type !== 'proveedor')
-                              .map((partner) => (
-                                <option key={partner.id} value={partner.id}>
-                                  {partner.name} ({partner.type})
-                                </option>
-                              ))}
-                          </select>
-                        </div>
-                        
-                        <div className="flex gap-3">
-                          <input
-                            type="text"
-                            value={uiState.quickClientName}
-                            onChange={(e) => {
-                              setUiState(prev => ({ ...prev, quickClientName: e.target.value }))
-                              setFormData({...formData, partner_id: ''})
-                            }}
-                            placeholder={`O escribir nombre de ${formData.devolucion_tipo === 'yo_devuelvo' ? 'cliente' : 'partner'} nuevo`}
-                            className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => crearClienteRapido(uiState.quickClientName)}
-                            disabled={!uiState.quickClientName.trim() || uiState.isCreatingQuickClient}
-                            className="px-4 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                          >
-                            {uiState.isCreatingQuickClient ? (
-                              <Loader2 size={16} className="animate-spin" />
-                            ) : (
-                              'Crear'
-                            )}
-                          </button>
-                        </div>
-                        
-                        <p className="text-xs text-gray-500 bg-gray-50 p-3 rounded-lg">
-                          💡 Puedes seleccionar un {formData.devolucion_tipo === 'yo_devuelvo' ? 'cliente' : 'partner'} existente o escribir para crear uno nuevo
-                        </p>
-                      </div>
+                      <ClientSearchInput
+                        partners={partners}
+                        selectedPartnerId={formData.partner_id}
+                        onPartnerSelect={(partnerId) => {
+                          setFormData({...formData, partner_id: partnerId})
+                        }}
+                        placeholder={`Buscar ${formData.devolucion_tipo === 'yo_devuelvo' ? 'cliente' : 'partner'}...`}
+                        label={formData.devolucion_tipo === 'yo_devuelvo' ? 'A quién devuelvo' : 'Quién me devuelve'}
+                        filterType="all"
+                      />
                     )}
                   </div>
                 ) : formData.type === 'pase' ? (
@@ -1302,142 +1244,40 @@ export default function NotasPedidoPage() {
                     </select>
                     
                     {formData.pase_tipo && (
-                      <div className="space-y-3">
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                          {formData.pase_tipo === 'yo_pase' ? 'A quién paso' : 'Quién me pasa'}
-                        </label>
-                        <div className="flex gap-3">
-                          <select
-                            value={formData.partner_id}
-                            onChange={(e) => {
-                              setFormData({...formData, partner_id: e.target.value})
-                              setUiState(prev => ({ ...prev, quickClientName: '' }))
-                            }}
-                            className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                          >
-                            <option value="">Seleccionar {formData.pase_tipo === 'yo_pase' ? 'cliente' : 'partner'} existente</option>
-                            {partners
-                              .filter(partner => partner.type !== 'proveedor')
-                              .map((partner) => (
-                                <option key={partner.id} value={partner.id}>
-                                  {partner.name} ({partner.type})
-                                </option>
-                              ))}
-                          </select>
-                        </div>
-                        
-                        <div className="flex gap-3">
-                          <input
-                            type="text"
-                            value={uiState.quickClientName}
-                            onChange={(e) => {
-                              setUiState(prev => ({ ...prev, quickClientName: e.target.value }))
-                              setFormData({...formData, partner_id: ''})
-                            }}
-                            placeholder={`O escribir nombre de ${formData.pase_tipo === 'yo_pase' ? 'cliente' : 'partner'} nuevo`}
-                            className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => crearClienteRapido(uiState.quickClientName)}
-                            disabled={!uiState.quickClientName.trim() || uiState.isCreatingQuickClient}
-                            className="px-4 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                          >
-                            {uiState.isCreatingQuickClient ? (
-                              <Loader2 size={16} className="animate-spin" />
-                            ) : (
-                              'Crear'
-                            )}
-                          </button>
-                        </div>
-                        
-                        <p className="text-xs text-gray-500 bg-gray-50 p-3 rounded-lg">
-                          💡 Puedes seleccionar un {formData.pase_tipo === 'yo_pase' ? 'cliente' : 'partner'} existente o escribir para crear uno nuevo
-                        </p>
-                      </div>
+                      <ClientSearchInput
+                        partners={partners}
+                        selectedPartnerId={formData.partner_id}
+                        onPartnerSelect={(partnerId) => {
+                          setFormData({...formData, partner_id: partnerId})
+                        }}
+                        placeholder={`Buscar ${formData.pase_tipo === 'yo_pase' ? 'cliente' : 'partner'}...`}
+                        label={formData.pase_tipo === 'yo_pase' ? 'A quién paso' : 'Quién me pasa'}
+                        filterType="all"
+                      />
                     )}
                   </div>
                 ) : formData.type === 'venta' ? (
-                  <div className="space-y-3">
-                    <div className="flex gap-3">
-                      <select
-                        value={formData.partner_id}
-                        onChange={(e) => {
-                          setFormData({...formData, partner_id: e.target.value})
-                          setUiState(prev => ({ ...prev, quickClientName: '' }))
-                        }}
-                        className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                      >
-                        <option value="">Seleccionar cliente existente</option>
-                        {partners
-                          .filter(partner => partner.type === 'cliente')
-                          .map((partner) => (
-                            <option key={partner.id} value={partner.id}>
-                              {partner.name}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                    
-                    <div className="flex gap-3">
-                      <input
-                        type="text"
-                        value={uiState.quickClientName}
-                        onChange={(e) => {
-                          setUiState(prev => ({ ...prev, quickClientName: e.target.value }))
-                          setFormData({...formData, partner_id: ''})
-                        }}
-                        placeholder="O escribir nombre de nuevo cliente"
-                        className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => crearClienteRapido(uiState.quickClientName)}
-                        disabled={!uiState.quickClientName.trim() || uiState.isCreatingQuickClient}
-                        className="px-4 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                      >
-                        {uiState.isCreatingQuickClient ? (
-                          <Loader2 size={16} className="animate-spin" />
-                        ) : (
-                          'Crear'
-                        )}
-                      </button>
-                    </div>
-                    
-                    <p className="text-xs text-gray-500 bg-gray-50 p-3 rounded-lg">
-                      💡 Puedes seleccionar un cliente existente o escribir para crear uno nuevo
-                    </p>
-                  </div>
+                  <ClientSearchInput
+                    partners={partners}
+                    selectedPartnerId={formData.partner_id}
+                    onPartnerSelect={(partnerId) => {
+                      setFormData({...formData, partner_id: partnerId})
+                    }}
+                    placeholder="Buscar cliente..."
+                    label="Cliente"
+                    filterType="cliente"
+                  />
                 ) : (
-                  <select
-                    value={formData.partner_id}
-                    onChange={(e) => setFormData({...formData, partner_id: e.target.value})}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                  >
-                    <option value="">
-                      {formData.type === 'compra' ? 'Seleccionar proveedor' : 
-                       'Seleccionar partner'}
-                    </option>
-                    {partners
-                      .filter(partner => {
-                        if (formData.type === 'compra') {
-                          return partner.type === 'proveedor'
-                        } else {
-                          return true
-                        }
-                      })
-                      .map((partner) => (
-                        <option key={partner.id} value={partner.id}>
-                          {partner.name} ({partner.type})
-                        </option>
-                      ))}
-                  </select>
-                )}
-                
-                {formData.type === 'compra' && (
-                  <p className="text-xs text-gray-500 bg-gray-50 p-3 rounded-lg mt-2">
-                    💡 Solo se muestran proveedores para transacciones de compra
-                  </p>
+                  <ClientSearchInput
+                    partners={partners}
+                    selectedPartnerId={formData.partner_id}
+                    onPartnerSelect={(partnerId) => {
+                      setFormData({...formData, partner_id: partnerId})
+                    }}
+                    placeholder={formData.type === 'compra' ? "Buscar proveedor..." : "Buscar partner..."}
+                    label={formData.type === 'compra' ? 'Proveedor' : 'Partner/Cliente'}
+                    filterType={formData.type === 'compra' ? 'proveedor' : 'all'}
+                  />
                 )}
               </div>
             </div>
@@ -1465,7 +1305,7 @@ export default function NotasPedidoPage() {
                  <div className="flex-shrink-0">
                    <div className="bg-blue-50 p-3 rounded-xl border border-blue-200 min-w-[200px]">
                      <div className="text-center">
-                       <div className="text-xs text-blue-600 font-medium mb-1">Fecha seleccionada</div>
+                       <div className="text-sm text-blue-600 font-medium mb-1">Fecha seleccionada</div>
                                               <div className="text-sm text-blue-800 font-semibold">
                          {formData.fecha_pedido && formData.fecha_pedido.trim() !== '' ? 
                            formatDateForLima(formData.fecha_pedido)
@@ -1743,14 +1583,28 @@ export default function NotasPedidoPage() {
               </div>
             )}
 
-            <div className="flex gap-4 pt-6">
-              <button
-                type="submit"
-                className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl hover:from-green-600 hover:to-emerald-600 transition-all duration-300 transform hover:scale-105 shadow-lg font-semibold"
-              >
-                <Save size={20} />
-                {editingNota ? 'Actualizar' : 'Crear'}
-              </button>
+                         <div className="flex gap-4 pt-6">
+               <button
+                 type="submit"
+                 disabled={uiState.isSubmitting}
+                 className={`flex items-center gap-3 px-6 py-3 rounded-xl transition-all duration-300 transform shadow-lg font-semibold ${
+                   uiState.isSubmitting 
+                     ? 'bg-gray-400 cursor-not-allowed' 
+                     : 'bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 hover:scale-105'
+                 }`}
+               >
+                 {uiState.isSubmitting ? (
+                   <>
+                     <Loader2 size={20} className="animate-spin" />
+                     {editingNota ? 'Actualizando...' : 'Creando...'}
+                   </>
+                 ) : (
+                   <>
+                     <Save size={20} />
+                     {editingNota ? 'Actualizar' : 'Crear'}
+                   </>
+                 )}
+               </button>
               <button
                 type="button"
                 onClick={resetForm}
@@ -1770,7 +1624,7 @@ export default function NotasPedidoPage() {
             <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
             <input
               type="text"
-              placeholder="Buscar por N° de pedido o producto..."
+              placeholder="Buscar por N° de pedido, producto o modelo..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
@@ -1859,12 +1713,20 @@ export default function NotasPedidoPage() {
                     </td>
                     <td className="p-6">
                       <div className="space-y-2">
-                        {nota.items.map((item, index) => (
-                          <div key={index} className="text-sm bg-white p-2 rounded-lg border border-gray-200">
-                            <span className="font-medium">{item.product_name}</span>
-                            <span className="text-gray-500 ml-2">× {item.quantity}</span>
-                          </div>
-                        ))}
+                        {nota.items.map((item, index) => {
+                          const producto = productos.find(p => p.id === item.product_id)
+                          return (
+                            <div key={index} className="text-sm bg-white p-3 rounded-lg border border-gray-200">
+                              <div className="font-medium text-gray-800">{item.product_name}</div>
+                              {producto?.model && (
+                                <div className="text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded-md mt-1 inline-block">
+                                  Modelo: {producto.model}
+                                </div>
+                              )}
+                              <div className="text-gray-500 mt-1">× {item.quantity}</div>
+                            </div>
+                          )
+                        })}
                       </div>
                     </td>
                     <td className="p-6 text-right">
@@ -2041,47 +1903,46 @@ export default function NotasPedidoPage() {
                 <div className="bg-gray-50 p-4 rounded-xl">
                   <h3 className="font-semibold text-gray-700 mb-3">Productos ({uiState.selectedNota.items.length})</h3>
                   <div className="space-y-3">
-                    {uiState.selectedNota.items.map((item, index) => (
-                      <div key={index} className="bg-white p-3 rounded-lg border border-gray-200">
-                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                          <div>
-                            <span className="text-sm text-gray-600">Producto:</span>
-                            <div className="font-medium">{item.product_name}</div>
-                          </div>
-                          <div>
-                            <span className="text-sm text-gray-600">Modelo:</span>
-                            <div className="font-medium">
-                              {(() => {
-                                const producto = productos.find(p => p.id === item.product_id)
-                                return producto?.model || 'N/A'
-                              })()}
+                    {uiState.selectedNota.items.map((item, index) => {
+                      const producto = productos.find(p => p.id === item.product_id)
+                      return (
+                        <div key={index} className="bg-white p-4 rounded-lg border border-gray-200">
+                          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                            <div>
+                              <span className="text-sm text-gray-600">Producto:</span>
+                              <div className="font-medium text-gray-800">{item.product_name}</div>
+                              {producto?.model && (
+                                <div className="text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded-md mt-1 inline-block">
+                                  Modelo: {producto.model}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                          <div>
-                            <span className="text-sm text-gray-600">Cantidad:</span>
-                            <div className="font-medium">{item.quantity}</div>
-                          </div>
-                          <div>
-                            <span className="text-sm text-gray-600">Precio Unitario:</span>
-                            <div className="font-medium">
-                                                             {uiState.selectedNota?.type === 'prestamo' || uiState.selectedNota?.type === 'devolucion' ? 
-                                 'N/A' : 
-                                 `S/. ${item.unit_price?.toFixed(2) || '0.00'}`
-                               }
+                            <div>
+                              <span className="text-sm text-gray-600">Cantidad:</span>
+                              <div className="font-medium">{item.quantity}</div>
                             </div>
-                          </div>
-                          <div>
-                            <span className="text-sm text-gray-600">Total:</span>
-                            <div className="font-medium">
-                                                             {uiState.selectedNota?.type === 'prestamo' || uiState.selectedNota?.type === 'devolucion' ? 
-                                 'N/A' : 
-                                 `S/. ${item.total_price?.toFixed(2) || '0.00'}`
-                               }
+                            <div>
+                              <span className="text-sm text-gray-600">Precio Unitario:</span>
+                              <div className="font-medium">
+                                {uiState.selectedNota?.type === 'prestamo' || uiState.selectedNota?.type === 'devolucion' ? 'N/A' : `S/. ${item.unit_price?.toFixed(2) || '0.00'}`}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-sm text-gray-600">Total:</span>
+                              <div className="font-medium">
+                                {uiState.selectedNota?.type === 'prestamo' || uiState.selectedNota?.type === 'devolucion' ? 'N/A' : `S/. ${item.total_price?.toFixed(2) || '0.00'}`}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-sm text-gray-600">Stock Actual:</span>
+                              <div className="font-medium text-gray-600">
+                                {producto?.stock || 'N/A'}
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
                 
