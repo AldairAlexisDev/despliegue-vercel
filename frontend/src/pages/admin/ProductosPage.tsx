@@ -17,7 +17,6 @@ type Producto = {
 
 type ProductoForm = {
   name: string
-  stock: number
   brand_id: string
   model: string
 }
@@ -44,7 +43,7 @@ export default function ProductosPage() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [productToDelete, setProductToDelete] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [formData, setFormData] = useState<ProductoForm>({ name: '', stock: 0, brand_id: '', model: '' })
+  const [formData, setFormData] = useState<ProductoForm>({ name: '', brand_id: '', model: '' })
 
   // Búsqueda manual - solo se ejecuta cuando el usuario hace clic en buscar o presiona Enter
 
@@ -187,7 +186,6 @@ export default function ProductosPage() {
     setEditingProduct(producto)
     setFormData({
       name: producto.name,
-      stock: producto.stock,
       brand_id: producto.brand_id || '',
       model: producto.model
     })
@@ -227,7 +225,6 @@ export default function ProductosPage() {
           .from('products')
           .update({
             name: formData.name,
-            stock: formData.stock,
             brand_id: formData.brand_id,
             model: formData.model
           })
@@ -241,12 +238,11 @@ export default function ProductosPage() {
             // Buscar el nombre de la marca actualizada
             const updatedBrand = marcas.find(m => m.id === formData.brand_id)?.name || 'Sin marca'
             return {
-              ...product,
-              name: formData.name,
-              stock: formData.stock,
-              brand_id: formData.brand_id,
-              brand: updatedBrand,
-              model: formData.model
+            ...product,
+            name: formData.name,
+            brand_id: formData.brand_id,
+            brand: updatedBrand,
+            model: formData.model
             }
           }
           return product
@@ -258,7 +254,7 @@ export default function ProductosPage() {
           .from('products')
           .insert([{
             name: formData.name,
-            stock: formData.stock,
+            stock: 0, // Stock inicial siempre será 0 para productos nuevos
             brand_id: formData.brand_id,
             model: formData.model
           }])
@@ -279,7 +275,7 @@ export default function ProductosPage() {
   }
 
   function resetForm() {
-    setFormData({ name: '', stock: 0, brand_id: '', model: '' })
+    setFormData({ name: '', brand_id: '', model: '' })
     setEditingProduct(null)
     setShowForm(false)
   }
@@ -610,17 +606,6 @@ export default function ProductosPage() {
                     className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-all duration-200 text-gray-700 text-sm sm:text-base" 
                     placeholder="Ej: UN65TU8000FXZX"
                     required 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-gray-700">Stock inicial</label>
-                  <input 
-                    type="number" 
-                    min={0} 
-                    value={formData.stock} 
-                    onChange={(e) => setFormData({ ...formData, stock: Math.max(0, parseInt(e.target.value) || 0) })} 
-                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-all duration-200 text-gray-700 text-sm sm:text-base" 
-                    placeholder="0"
                   />
                 </div>
               </div>
