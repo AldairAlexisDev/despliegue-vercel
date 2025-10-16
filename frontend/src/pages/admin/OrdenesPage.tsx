@@ -494,6 +494,18 @@ export default function NotasPedidoPage() {
     return formData.items.reduce((sum, item) => sum + item.total_price, 0)
   }, [formData.items])
 
+  // Función para manejar cuando se crea un nuevo partner desde ClientSearchInput
+  const handlePartnerCreated = useCallback((newPartner: Partner) => {
+    // Actualizar la lista de partners
+    setPartners(prev => [...prev, newPartner])
+    
+    // Seleccionar automáticamente el nuevo partner
+    setFormData(prev => ({
+      ...prev,
+      partner_id: newPartner.id
+    }))
+  }, [])
+
   // Optimización: useCallback para funciones async
   const crearClienteRapido = useCallback(async (nombrePartner: string) => {
     if (!nombrePartner.trim()) {
@@ -1152,32 +1164,30 @@ export default function NotasPedidoPage() {
               </div>
 
                              <div className="space-y-2">
-                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                   {formData.type === 'venta' ? 'Cliente' : 
-                    formData.type === 'pase' ? 'Tipo de Pase' :
-                    formData.type === 'compra' ? 'Proveedor' : 
-                    formData.type === 'prestamo' ? 'Tipo de Préstamo' :
-                    'Partner/Cliente'}
-                 </label>
                 
                 {formData.type === 'prestamo' ? (
                   <div className="space-y-3">
-                    <select
-                      value={formData.prestamo_tipo || ''}
-                      onChange={(e) => {
-                        setFormData({
-                          ...formData, 
-                          prestamo_tipo: e.target.value as 'yo_presto' | 'me_prestan',
-                          partner_id: ''
-                        })
-                      }}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                      required
-                    >
-                      <option value="">Seleccionar tipo de préstamo</option>
-                      <option value="yo_presto">Yo presto</option>
-                      <option value="me_prestan">Me prestan</option>
-                    </select>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        Tipo de Préstamo *
+                      </label>
+                      <select
+                        value={formData.prestamo_tipo || ''}
+                        onChange={(e) => {
+                          setFormData({
+                            ...formData, 
+                            prestamo_tipo: e.target.value as 'yo_presto' | 'me_prestan',
+                            partner_id: ''
+                          })
+                        }}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
+                        required
+                      >
+                        <option value="">Seleccionar tipo de préstamo</option>
+                        <option value="yo_presto">Yo presto</option>
+                        <option value="me_prestan">Me prestan</option>
+                      </select>
+                    </div>
                     
                     {formData.prestamo_tipo && (
                   <ClientSearchInput
@@ -1186,6 +1196,7 @@ export default function NotasPedidoPage() {
                     onPartnerSelect={(partnerId) => {
                       setFormData({...formData, partner_id: partnerId})
                     }}
+                    onPartnerCreated={handlePartnerCreated}
                     placeholder={`Buscar ${formData.prestamo_tipo === 'yo_presto' ? 'cliente' : 'partner'}...`}
                     label={formData.prestamo_tipo === 'yo_presto' ? 'A quién presto' : 'Quién me presta'}
                     filterType="all"
@@ -1194,22 +1205,27 @@ export default function NotasPedidoPage() {
                   </div>
                 ) : formData.type === 'devolucion' ? (
                   <div className="space-y-3">
-                    <select
-                      value={formData.devolucion_tipo || ''}
-                      onChange={(e) => {
-                        setFormData({
-                          ...formData, 
-                          devolucion_tipo: e.target.value as 'yo_devuelvo' | 'me_devuelven',
-                          partner_id: ''
-                        })
-                      }}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                      required
-                    >
-                      <option value="">Seleccionar tipo de devolución</option>
-                      <option value="yo_devuelvo">Yo devuelvo</option>
-                      <option value="me_devuelven">Me devuelven</option>
-                    </select>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        Tipo de Devolución *
+                      </label>
+                      <select
+                        value={formData.devolucion_tipo || ''}
+                        onChange={(e) => {
+                          setFormData({
+                            ...formData, 
+                            devolucion_tipo: e.target.value as 'yo_devuelvo' | 'me_devuelven',
+                            partner_id: ''
+                          })
+                        }}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
+                        required
+                      >
+                        <option value="">Seleccionar tipo de devolución</option>
+                        <option value="yo_devuelvo">Yo devuelvo</option>
+                        <option value="me_devuelven">Me devuelven</option>
+                      </select>
+                    </div>
                     
                     {formData.devolucion_tipo && (
                       <ClientSearchInput
@@ -1218,6 +1234,7 @@ export default function NotasPedidoPage() {
                         onPartnerSelect={(partnerId) => {
                           setFormData({...formData, partner_id: partnerId})
                         }}
+                        onPartnerCreated={handlePartnerCreated}
                         placeholder={`Buscar ${formData.devolucion_tipo === 'yo_devuelvo' ? 'cliente' : 'partner'}...`}
                         label={formData.devolucion_tipo === 'yo_devuelvo' ? 'A quién devuelvo' : 'Quién me devuelve'}
                         filterType="all"
@@ -1226,22 +1243,27 @@ export default function NotasPedidoPage() {
                   </div>
                 ) : formData.type === 'pase' ? (
                   <div className="space-y-3">
-                    <select
-                      value={formData.pase_tipo || ''}
-                      onChange={(e) => {
-                        setFormData({
-                          ...formData, 
-                          pase_tipo: e.target.value as 'yo_pase' | 'me_pasen',
-                          partner_id: ''
-                        })
-                      }}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                      required
-                    >
-                      <option value="">Seleccionar tipo de pase</option>
-                      <option value="yo_pase">Yo pase</option>
-                      <option value="me_pasen">Me pasen</option>
-                    </select>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        Tipo de Pase *
+                      </label>
+                      <select
+                        value={formData.pase_tipo || ''}
+                        onChange={(e) => {
+                          setFormData({
+                            ...formData, 
+                            pase_tipo: e.target.value as 'yo_pase' | 'me_pasen',
+                            partner_id: ''
+                          })
+                        }}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
+                        required
+                      >
+                        <option value="">Seleccionar tipo de pase</option>
+                        <option value="yo_pase">Yo pase</option>
+                        <option value="me_pasen">Me pasen</option>
+                      </select>
+                    </div>
                     
                     {formData.pase_tipo && (
                       <ClientSearchInput
@@ -1250,6 +1272,7 @@ export default function NotasPedidoPage() {
                         onPartnerSelect={(partnerId) => {
                           setFormData({...formData, partner_id: partnerId})
                         }}
+                        onPartnerCreated={handlePartnerCreated}
                         placeholder={`Buscar ${formData.pase_tipo === 'yo_pase' ? 'cliente' : 'partner'}...`}
                         label={formData.pase_tipo === 'yo_pase' ? 'A quién paso' : 'Quién me pasa'}
                         filterType="all"
@@ -1263,6 +1286,7 @@ export default function NotasPedidoPage() {
                     onPartnerSelect={(partnerId) => {
                       setFormData({...formData, partner_id: partnerId})
                     }}
+                    onPartnerCreated={handlePartnerCreated}
                     placeholder="Buscar cliente..."
                     label="Cliente"
                     filterType="cliente"
@@ -1274,6 +1298,7 @@ export default function NotasPedidoPage() {
                     onPartnerSelect={(partnerId) => {
                       setFormData({...formData, partner_id: partnerId})
                     }}
+                    onPartnerCreated={handlePartnerCreated}
                     placeholder={formData.type === 'compra' ? "Buscar proveedor..." : "Buscar partner..."}
                     label={formData.type === 'compra' ? 'Proveedor' : 'Partner/Cliente'}
                     filterType={formData.type === 'compra' ? 'proveedor' : 'all'}
